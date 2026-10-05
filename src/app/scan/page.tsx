@@ -23,16 +23,6 @@ type ScanMode = 'choose' | 'batch' | 'kit';
 type BatchStep = 'scan_batch' | 'scanning' | 'finished';
 type KitStep = 'scan_kit' | 'scanning' | 'finished';
 
-interface PendingConfirmSave {
-  mode: 'batch' | 'kit';
-  serial: string;
-  productName: string;
-  partCode?: string;
-  batchCode?: string;
-  kitCode?: string;
-  productId?: string;
-}
-
 export default function ScanPage() {
   const router = useRouter();
   const [mode, setMode] = useState<ScanMode>('choose');
@@ -45,6 +35,7 @@ export default function ScanPage() {
   const [batchProducts, setBatchProducts] = useState<InventoryItem[]>([]);
   const [activeBatchProduct, setActiveBatchProduct] = useState<Product | null>(null);
   const [isProductModalOpen, setIsProductModalOpen] = useState<boolean>(false);
+  const [showConfirmSaveBatchModal, setShowConfirmSaveBatchModal] = useState<boolean>(false);
 
   // ----------------------------------------------------
   // Kit Flow State
@@ -55,6 +46,7 @@ export default function ScanPage() {
   const [availableKitSerials, setAvailableKitSerials] = useState<InventoryItem[]>([]);
   const [availableSearch, setAvailableSearch] = useState('');
   const [isLoadingAvailable, setIsLoadingAvailable] = useState<boolean>(false);
+  const [showConfirmSaveKitModal, setShowConfirmSaveKitModal] = useState<boolean>(false);
 
   // ----------------------------------------------------
   // Product Selector State & Cache
@@ -64,11 +56,6 @@ export default function ScanPage() {
   const [productSearch, setProductSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
-
-  // ----------------------------------------------------
-  // User Save Confirmation State ("Are you sure to save?")
-  // ----------------------------------------------------
-  const [pendingConfirmSave, setPendingConfirmSave] = useState<PendingConfirmSave | null>(null);
 
   // ----------------------------------------------------
   // Transient Feedback & Notifications
@@ -255,7 +242,7 @@ export default function ScanPage() {
     });
   };
 
-  // 3. Scan Serial QR for Batch (Verifies code, then prompts user "Are you sure to save?")
+  // 3. Continuous Rapid Multi-Quantity Serial Scanning into Batch (No modal between serials)
   const handleContinuousSerialScan = async (serialCode: string) => {
     const cleaned = serialCode.trim();
     if (!cleaned || !currentBatch) return;
@@ -289,14 +276,15 @@ export default function ScanPage() {
     setErrorMessage(null);
 
     try {
-      // Pre-verify with server: check if already registered in inventory
+      // Directly add to batch without blocking confirmation
       const res = await fetch('/api/scan/product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'verify',
+          action: 'add',
           serialCode: cleaned,
           batchCode: currentBatch.code,
+          productId: activeBatchProduct._id?.toString() || activeBatchProduct.partCode,
         }),
       });
 
@@ -318,21 +306,51 @@ export default function ScanPage() {
       }
 
       if (!res.ok) {
-        setErrorMessage(data.error || 'Invalid serial code format');
+        setErrorMessage(data.error || 'Failed to add serial to batch');
         return;
       }
 
-      // Valid & Unregistered Serial! Prompt user for confirmation before saving:
-      setPendingConfirmSave({
-        mode: 'batch',
+      // Success: add item, update count, show non-blocking floating pill
+      const newItem = data.item;
+      setBatchProducts((prev) => [newItem, ...prev]);
+      setCurrentBatch((prev) => (prev ? { ...prev, productCount: prev.productCount + 1 } : null));
+
+      setFloatingToast({
         serial: cleaned,
         productName: activeBatchProduct.name,
-        partCode: activeBatchProduct.partCode,
-        batchCode: currentBatch.code,
-        productId: activeBatchProduct._id?.toString() || activeBatchProduct.partCode,
       });
     } catch {
-      setErrorMessage('Failed to verify serial. Please check your connection.');
+      setErrorMessage('Failed to save serial. Please check your connection.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // CONFIRM SAVE BATCH / FINISH BATCH HANDLER
+  // ----------------------------------------------------
+  const handleConfirmSaveBatchYes = async () => {
+    if (!currentBatch) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+
+    try {
+      // Mark batch saved and closed in DB
+      await fetch(`/api/batches/${currentBatch.code}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'closed' }),
+      });
+
+      setShowConfirmSaveBatchModal(false);
+      setBatchStep('finished');
+      setSuccessBanner({
+        title: '✓ Batch Saved Successfully',
+        subtitle: `Batch ${currentBatch.code} with ${batchProducts.length} product(s) has been finalized.`,
+      });
+    } catch {
+      setShowConfirmSaveBatchModal(false);
+      setBatchStep('finished');
     } finally {
       setIsProcessing(false);
     }
@@ -402,12 +420,11 @@ export default function ScanPage() {
     setErrorMessage(null);
 
     try {
-      // Pre-verify with server: check if item exists and kit assignment status
       const res = await fetch('/api/kit/add-item', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'verify',
+          action: 'add',
           kitCode: currentKit.code,
           serialCode: cleaned,
         }),
@@ -419,10 +436,10 @@ export default function ScanPage() {
         setDuplicateAlert({
           title: '⚠ Already Assigned To Kit',
           serial: cleaned,
-          productName: data.productName,
-          batchCode: data.currentBatch,
-          kitCode: data.currentKit,
-          message: `This product is already assigned to ${data.currentKit || 'a kit'}.`,
+          productName: data.item?.productName || data.productName,
+          batchCode: data.item?.batchCode || data.currentBatch,
+          kitCode: data.item?.kitCode || data.currentKit,
+          message: data.error || `This product is already assigned to ${data.currentKit || 'a kit'}.`,
         });
         return;
       }
@@ -432,146 +449,30 @@ export default function ScanPage() {
         return;
       }
 
-      // Valid serial! Prompt user for confirmation before saving:
-      setPendingConfirmSave({
-        mode: 'kit',
+      setKitProducts((prev) => [data.item, ...prev]);
+      setCurrentKit((prev) => (prev ? { ...prev, itemCount: prev.itemCount + 1 } : null));
+
+      // Remove from available kit serials list in real time
+      setAvailableKitSerials((prev) => prev.filter((i) => i.serialCode !== cleaned));
+
+      setFloatingToast({
         serial: cleaned,
         productName: data.item?.productName || 'Product',
-        batchCode: data.item?.batchCode,
-        kitCode: currentKit.code,
       });
     } catch {
-      setErrorMessage('Failed to verify item for kit.');
+      setErrorMessage('Failed to add product to kit.');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // ----------------------------------------------------
-  // CONFIRMATION DECISION HANDLERS: YES / NO
-  // ----------------------------------------------------
-
-  // USER CLICKS YES: SAVE TO DATABASE
-  const handleConfirmSaveYes = async () => {
-    if (!pendingConfirmSave) return;
-    setIsProcessing(true);
-    setErrorMessage(null);
-
-    try {
-      if (pendingConfirmSave.mode === 'batch') {
-        const res = await fetch('/api/scan/product', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            serialCode: pendingConfirmSave.serial,
-            batchCode: pendingConfirmSave.batchCode,
-            productId: pendingConfirmSave.productId,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (res.status === 409) {
-          setDuplicateAlert({
-            title: '⚠ Already Registered',
-            serial: pendingConfirmSave.serial,
-            productName: data.item?.productName || pendingConfirmSave.productName,
-            batchCode: data.item?.batchCode,
-            kitCode: data.item?.kitCode,
-            status: data.item?.status,
-            createdAt: data.item?.createdAt,
-            message: data.error || 'This QR has already been registered.',
-          });
-          setPendingConfirmSave(null);
-          return;
-        }
-
-        if (!res.ok) {
-          setErrorMessage(data.error || 'Failed to save product to batch');
-          return;
-        }
-
-        // Successfully saved
-        const newItem = data.item;
-        setBatchProducts((prev) => [newItem, ...prev]);
-        setCurrentBatch((prev) => (prev ? { ...prev, productCount: prev.productCount + 1 } : null));
-
-        setFloatingToast({
-          serial: pendingConfirmSave.serial,
-          productName: pendingConfirmSave.productName,
-        });
-
-        setSuccessBanner({
-          title: '✓ Product Saved to Batch',
-          subtitle: `${pendingConfirmSave.serial} — ${pendingConfirmSave.productName} added to ${pendingConfirmSave.batchCode}`,
-        });
-      } else if (pendingConfirmSave.mode === 'kit') {
-        const res = await fetch('/api/kit/add-item', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            kitCode: pendingConfirmSave.kitCode,
-            serialCode: pendingConfirmSave.serial,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (res.status === 409) {
-          setDuplicateAlert({
-            title: '⚠ Already Assigned To Kit',
-            serial: pendingConfirmSave.serial,
-            kitCode: data.item?.kitCode,
-            message: data.error,
-          });
-          setPendingConfirmSave(null);
-          return;
-        }
-
-        if (!res.ok) {
-          setErrorMessage(data.error || 'Failed to save product to kit');
-          return;
-        }
-
-        setKitProducts((prev) => [data.item, ...prev]);
-        setCurrentKit((prev) => (prev ? { ...prev, itemCount: prev.itemCount + 1 } : null));
-
-        // Real-time update: remove from available kit serials list
-        setAvailableKitSerials((prev) =>
-          prev.filter((i) => i.serialCode !== pendingConfirmSave.serial)
-        );
-
-        setFloatingToast({
-          serial: pendingConfirmSave.serial,
-          productName: pendingConfirmSave.productName,
-        });
-
-        setSuccessBanner({
-          title: '✓ Product Saved to Kit',
-          subtitle: `${pendingConfirmSave.serial} — Added to ${pendingConfirmSave.kitCode}`,
-        });
-      }
-
-      setPendingConfirmSave(null);
-    } catch {
-      setErrorMessage('Failed to save. Please check your connection.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // USER CLICKS NO: DO NOT SAVE
-  const handleConfirmSaveNo = () => {
-    if (!pendingConfirmSave) return;
-    const cancelledSerial = pendingConfirmSave.serial;
-    setPendingConfirmSave(null);
-    setErrorMessage(null);
-
+  const handleConfirmSaveKitYes = () => {
+    if (!currentKit) return;
+    setShowConfirmSaveKitModal(false);
+    setKitStep('finished');
     setSuccessBanner({
-      title: '✕ Cancelled (Not Saved)',
-      subtitle: `Serial ${cancelledSerial} was not saved. Scanner is ready for next code.`,
+      title: '✓ Kit Saved Successfully',
+      subtitle: `Kit ${currentKit.code} finalized with ${kitProducts.length} items.`,
     });
   };
 
@@ -582,13 +483,14 @@ export default function ScanPage() {
     setBatchProducts([]);
     setActiveBatchProduct(null);
     setIsProductModalOpen(false);
-    setPendingConfirmSave(null);
+    setShowConfirmSaveBatchModal(false);
 
     setKitStep('scan_kit');
     setCurrentKit(null);
     setKitProducts([]);
     setAvailableKitSerials([]);
     setAvailableSearch('');
+    setShowConfirmSaveKitModal(false);
 
     setErrorMessage(null);
     setDuplicateAlert(null);
@@ -756,7 +658,7 @@ export default function ScanPage() {
               <div>
                 <div className="text-lg font-black text-[#111111] tracking-wide">BATCH</div>
                 <div className="text-xs text-[#666666] mt-0.5">
-                  Scan batch QR (BAT-*), select product, confirm and add multiple serials into the batch
+                  Scan batch QR (BAT-*), select product, scan multiple serials directly, and save batch
                 </div>
               </div>
             </button>
@@ -776,7 +678,7 @@ export default function ScanPage() {
               <div>
                 <div className="text-lg font-black text-[#111111] tracking-wide">KIT</div>
                 <div className="text-xs text-[#666666] mt-0.5">
-                  Scan kit QR (KIT-*) and confirm adding registered serialized products into a kit
+                  Scan kit QR (KIT-*) and add registered serialized products into a kit
                 </div>
               </div>
             </button>
@@ -820,10 +722,16 @@ export default function ScanPage() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setBatchStep('finished')}
-                      className="text-xs font-bold px-3 py-1.5 bg-neutral-200 text-[#111111] hover:bg-neutral-300 rounded transition"
+                      onClick={() => {
+                        if (batchProducts.length === 0) {
+                          setErrorMessage('Please scan at least one product before saving the batch.');
+                          return;
+                        }
+                        setShowConfirmSaveBatchModal(true);
+                      }}
+                      className="text-xs font-bold px-3 py-1.5 bg-black text-white hover:bg-neutral-800 rounded transition"
                     >
-                      Finish Batch
+                      Save Batch
                     </button>
                   </div>
                 </div>
@@ -866,7 +774,7 @@ export default function ScanPage() {
           <div className="relative">
             <BarcodeScanner
               onScan={batchStep === 'scan_batch' ? handleScanBatchQR : handleContinuousSerialScan}
-              isProcessing={isProcessing || isProductModalOpen || Boolean(pendingConfirmSave)}
+              isProcessing={isProcessing || isProductModalOpen || showConfirmSaveBatchModal}
               expectedType={batchStep === 'scan_batch' ? 'batch' : 'serial'}
               placeholderText={
                 batchStep === 'scan_batch'
@@ -877,12 +785,12 @@ export default function ScanPage() {
               }
             />
 
-            {/* Non-blocking floating toast over camera */}
+            {/* Non-blocking floating toast over camera on successful multi-scan */}
             {floatingToast && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black text-white px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 shadow-lg animate-fadeIn z-20 pointer-events-none">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="font-mono">{floatingToast.serial}</span>
-                <span className="text-neutral-300">Saved!</span>
+                <span className="text-neutral-300">Added!</span>
               </div>
             )}
           </div>
@@ -940,17 +848,23 @@ export default function ScanPage() {
                 <button
                   type="button"
                   onClick={() => setIsProductModalOpen(true)}
-                  className="flex-1 py-2 bg-white text-[#111111] border border-black text-xs font-bold rounded hover:bg-neutral-50 transition flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 bg-white text-[#111111] border border-black text-xs font-bold rounded hover:bg-neutral-50 transition flex items-center justify-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Another Item / Switch Product</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBatchStep('finished')}
-                  className="flex-1 py-2 bg-black text-white text-xs font-bold rounded hover:bg-neutral-800 transition"
+                  onClick={() => {
+                    if (batchProducts.length === 0) {
+                      setErrorMessage('Please scan at least one product before saving the batch.');
+                      return;
+                    }
+                    setShowConfirmSaveBatchModal(true);
+                  }}
+                  className="flex-1 py-2.5 bg-black text-white text-xs font-bold rounded hover:bg-neutral-800 transition shadow-sm"
                 >
-                  Finish Batch ({batchProducts.length})
+                  Save Batch ({batchProducts.length})
                 </button>
               </div>
             </div>
@@ -1102,9 +1016,9 @@ export default function ScanPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 4. CONFIRMATION MODAL: "ARE YOU SURE YOU WANT TO SAVE?"            */}
+      {/* 4. CONFIRMATION MODAL: "ARE YOU SURE YOU WANT TO SAVE THIS BATCH?"  */}
       {/* ------------------------------------------------------------------ */}
-      {pendingConfirmSave && (
+      {showConfirmSaveBatchModal && currentBatch && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
           <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-xl border-2 border-black p-5 space-y-4 shadow-2xl">
             {/* Header */}
@@ -1117,67 +1031,62 @@ export default function ScanPage() {
                   Are you sure you want to save?
                 </h3>
                 <p className="text-xs text-[#666666]">
-                  {pendingConfirmSave.mode === 'batch'
-                    ? 'Confirm adding this serial to the active batch'
-                    : 'Confirm adding this serial to the active kit'}
+                  Confirm saving batch {currentBatch.code} with all scanned products
                 </p>
               </div>
             </div>
 
-            {/* Scanned Details Card */}
+            {/* Batch Details Card */}
             <div className="p-3.5 bg-neutral-50 border border-[#E5E5E5] rounded-lg text-xs space-y-2">
               <div className="flex justify-between items-center py-1 border-b border-[#E5E5E5]">
-                <span className="text-[#666666] font-medium">Scanned Serial:</span>
+                <span className="text-[#666666] font-medium">Batch Code:</span>
                 <span className="font-mono font-black text-base text-[#111111] bg-white px-2 py-0.5 border border-[#E5E5E5] rounded">
-                  {pendingConfirmSave.serial}
+                  {currentBatch.code}
                 </span>
               </div>
-              <div className="flex justify-between items-center py-0.5">
-                <span className="text-[#666666] font-medium">Item / Product:</span>
-                <span className="font-bold text-[#111111] text-right">
-                  {pendingConfirmSave.productName}
+              <div className="flex justify-between items-center py-1">
+                <span className="text-[#666666] font-medium">Total Products Scanned:</span>
+                <span className="font-bold text-[#111111] text-sm font-mono">
+                  {batchProducts.length} items
                 </span>
               </div>
-              {pendingConfirmSave.partCode && (
-                <div className="flex justify-between items-center py-0.5">
-                  <span className="text-[#666666] font-medium">Part Code:</span>
-                  <span className="font-mono text-[#555555]">
-                    {pendingConfirmSave.partCode}
+
+              {/* Product breakdown */}
+              {Object.keys(productBreakdown).length > 0 && (
+                <div className="pt-2 border-t border-[#E5E5E5] space-y-1">
+                  <span className="text-[10px] text-[#777777] uppercase font-bold tracking-wider block">
+                    Product Breakdown:
                   </span>
+                  {Object.entries(productBreakdown).map(([code, info]) => (
+                    <div key={code} className="flex justify-between py-0.5 text-xs">
+                      <span className="text-[#444444] truncate pr-2">{info.name}:</span>
+                      <span className="font-mono font-bold text-[#111111]">{info.count} items</span>
+                    </div>
+                  ))}
                 </div>
               )}
-              <div className="flex justify-between items-center py-1 border-t border-[#E5E5E5]">
-                <span className="text-[#666666] font-medium">
-                  {pendingConfirmSave.mode === 'batch' ? 'Target Batch:' : 'Target Kit:'}
-                </span>
-                <span className="font-mono font-bold text-[#111111]">
-                  {pendingConfirmSave.mode === 'batch'
-                    ? pendingConfirmSave.batchCode
-                    : pendingConfirmSave.kitCode}
-                </span>
-              </div>
             </div>
 
-            {/* Action Buttons: [No, Don't Save] vs [Yes, Save] */}
+            {/* Action Buttons: [No, Continue Scanning] vs [Yes, Save Batch] */}
             <div className="grid grid-cols-2 gap-3 pt-1">
               <button
                 type="button"
-                onClick={handleConfirmSaveNo}
+                onClick={() => setShowConfirmSaveBatchModal(false)}
                 disabled={isProcessing}
                 className="py-3 px-4 bg-white text-[#111111] border-2 border-[#111111] font-bold text-xs rounded-lg hover:bg-neutral-100 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
-                <span>No, Don&apos;t Save</span>
+                <span>No, Continue Scanning</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleConfirmSaveYes}
+                onClick={handleConfirmSaveBatchYes}
                 disabled={isProcessing}
                 className="py-3 px-4 bg-black text-white font-bold text-xs rounded-lg hover:bg-neutral-800 transition flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
               >
                 <Check className="w-4 h-4 text-emerald-400" />
-                <span>{isProcessing ? 'Saving...' : 'Yes, Save'}</span>
+                <span>{isProcessing ? 'Saving...' : 'Yes, Save Batch'}</span>
               </button>
             </div>
           </div>
@@ -1253,14 +1162,39 @@ export default function ScanPage() {
             </div>
           ) : (
             currentKit && (
-              <div className="p-3 bg-neutral-100 border border-[#E5E5E5] rounded flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] text-[#666666] uppercase block font-semibold">Active Kit</span>
-                  <span className="text-sm font-black font-mono text-[#111111]">{currentKit.code}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[11px] text-[#666666] block font-semibold">Products in Kit</span>
-                  <span className="text-sm font-bold text-[#111111]">{kitProducts.length}</span>
+              <div className="p-3.5 bg-neutral-50 border border-[#E5E5E5] rounded-lg space-y-2.5">
+                <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-2">
+                  <div>
+                    <span className="text-[10px] text-[#666666] uppercase font-bold tracking-wider block">
+                      Active Kit
+                    </span>
+                    <span className="text-base font-black font-mono text-[#111111]">
+                      {currentKit.code}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right pr-2 border-r border-[#E5E5E5]">
+                      <span className="text-[10px] text-[#666666] uppercase font-bold tracking-wider block">
+                        Products in Kit
+                      </span>
+                      <span className="text-base font-black text-[#111111]">
+                        {kitProducts.length}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (kitProducts.length === 0) {
+                          setErrorMessage('Please add at least one product before saving the kit.');
+                          return;
+                        }
+                        setShowConfirmSaveKitModal(true);
+                      }}
+                      className="text-xs font-bold px-3 py-1.5 bg-black text-white hover:bg-neutral-800 rounded transition"
+                    >
+                      Save Kit
+                    </button>
+                  </div>
                 </div>
               </div>
             )
@@ -1270,12 +1204,12 @@ export default function ScanPage() {
           <div className="relative">
             <BarcodeScanner
               onScan={kitStep === 'scan_kit' ? handleScanKitQR : handleScanProductForKit}
-              isProcessing={isProcessing || Boolean(pendingConfirmSave)}
+              isProcessing={isProcessing || showConfirmSaveKitModal}
               expectedType={kitStep === 'scan_kit' ? 'kit' : 'serial'}
               placeholderText={
                 kitStep === 'scan_kit'
                   ? 'Scan a kit QR (e.g. KIT-A00001)'
-                  : `Scan serial for ${currentKit?.code}`
+                  : `Scan registered serial for ${currentKit?.code}`
               }
             />
 
@@ -1284,7 +1218,7 @@ export default function ScanPage() {
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black text-white px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 shadow-lg animate-fadeIn z-20 pointer-events-none">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="font-mono">{floatingToast.serial}</span>
-                <span className="text-neutral-300">Saved to Kit!</span>
+                <span className="text-neutral-300">Added to Kit!</span>
               </div>
             )}
           </div>
@@ -1360,16 +1294,7 @@ export default function ScanPage() {
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setPendingConfirmSave({
-                            mode: 'kit',
-                            serial: item.serialCode,
-                            productName: item.productName,
-                            partCode: item.partCode,
-                            batchCode: item.batchCode,
-                            kitCode: currentKit.code,
-                          });
-                        }}
+                        onClick={() => handleScanProductForKit(item.serialCode)}
                         className="flex-shrink-0 px-3 py-1 bg-black text-white text-xs font-bold rounded hover:bg-neutral-800 transition flex items-center gap-1 shadow-sm"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -1417,17 +1342,23 @@ export default function ScanPage() {
                 </div>
               ) : (
                 <p className="text-xs text-[#888888] py-2 text-center">
-                  No products added to this kit yet. Scan serial codes above.
+                  No products added to this kit yet. Scan serial codes above or tap Add from available serials.
                 </p>
               )}
 
               <div className="pt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setKitStep('finished')}
-                  className="w-full py-2 bg-neutral-100 text-[#111111] border border-[#E5E5E5] text-xs font-bold rounded hover:bg-neutral-200 transition"
+                  onClick={() => {
+                    if (kitProducts.length === 0) {
+                      setErrorMessage('Please add at least one product before saving the kit.');
+                      return;
+                    }
+                    setShowConfirmSaveKitModal(true);
+                  }}
+                  className="w-full py-2.5 bg-black text-white text-xs font-bold rounded hover:bg-neutral-800 transition"
                 >
-                  Finish Kit ({kitProducts.length})
+                  Save Kit ({kitProducts.length})
                 </button>
               </div>
             </div>
@@ -1436,7 +1367,65 @@ export default function ScanPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 7. FINISHED KIT SUMMARY VIEW                                       */}
+      {/* 7. CONFIRMATION MODAL: "ARE YOU SURE YOU WANT TO SAVE THIS KIT?"    */}
+      {/* ------------------------------------------------------------------ */}
+      {showConfirmSaveKitModal && currentKit && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-xl border-2 border-black p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-[#E5E5E5] pb-3">
+              <div className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#111111]">
+                  Are you sure you want to save?
+                </h3>
+                <p className="text-xs text-[#666666]">
+                  Confirm saving kit {currentKit.code} with {kitProducts.length} product(s)
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-neutral-50 border border-[#E5E5E5] rounded-lg text-xs space-y-2">
+              <div className="flex justify-between items-center py-1 border-b border-[#E5E5E5]">
+                <span className="text-[#666666] font-medium">Kit Code:</span>
+                <span className="font-mono font-black text-base text-[#111111] bg-white px-2 py-0.5 border border-[#E5E5E5] rounded">
+                  {currentKit.code}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-[#666666] font-medium">Total Products in Kit:</span>
+                <span className="font-bold text-[#111111] text-sm font-mono">
+                  {kitProducts.length} items
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowConfirmSaveKitModal(false)}
+                className="py-3 px-4 bg-white text-[#111111] border-2 border-[#111111] font-bold text-xs rounded-lg hover:bg-neutral-100 transition flex items-center justify-center gap-1.5"
+              >
+                <X className="w-4 h-4" />
+                <span>No, Continue Scanning</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmSaveKitYes}
+                className="py-3 px-4 bg-black text-white font-bold text-xs rounded-lg hover:bg-neutral-800 transition flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>Yes, Save Kit</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* 8. FINISHED KIT SUMMARY VIEW                                       */}
       {/* ------------------------------------------------------------------ */}
       {mode === 'kit' && kitStep === 'finished' && currentKit && (
         <div className="p-6 bg-white border border-[#E5E5E5] rounded text-center space-y-4">
