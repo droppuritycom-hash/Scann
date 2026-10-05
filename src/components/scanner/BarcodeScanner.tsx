@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Camera, RefreshCw, AlertCircle, Volume2, VolumeX, Keyboard } from 'lucide-react';
+import { RefreshCw, AlertCircle, Volume2, VolumeX } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
@@ -29,17 +29,27 @@ export default function BarcodeScanner({
   const lastScannedCodeRef = useRef<string>('');
   const lastScanTimeRef = useRef<number>(0);
 
-  // Synthesize crisp warehouse beep
+  // Stable references to prevent camera unmounts/restarts
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+
+  const isProcessingRef = useRef(isProcessing);
+  isProcessingRef.current = isProcessing;
+
+  const soundEnabledRef = useRef(soundEnabled);
+  soundEnabledRef.current = soundEnabled;
+
+  // Synthesize warehouse audio beep
   const playBeep = useCallback(() => {
-    if (!soundEnabled) return;
+    if (!soundEnabledRef.current) return;
     try {
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextClass) return;
-      const ctx = new AudioContextClass();
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz A5 note
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
       gain.gain.setValueAtTime(0.15, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
       osc.connect(gain);
@@ -49,16 +59,16 @@ export default function BarcodeScanner({
     } catch {
       // Audio autoplay policy fallback
     }
-  }, [soundEnabled]);
+  }, []);
 
   const handleSuccessfulScan = useCallback(
     (decodedText: string) => {
       const now = Date.now();
       const cleaned = decodedText.trim();
 
-      // Debounce: ignore same code within 1500ms or if locked
-      if (scanLockRef.current || isProcessing) return;
-      if (cleaned === lastScannedCodeRef.current && now - lastScanTimeRef.current < 1500) {
+      // Debounce: ignore same code within 2000ms or if locked/processing
+      if (scanLockRef.current || isProcessingRef.current) return;
+      if (cleaned === lastScannedCodeRef.current && now - lastScanTimeRef.current < 2000) {
         return;
       }
 
@@ -72,14 +82,15 @@ export default function BarcodeScanner({
         navigator.vibrate(80);
       }
 
-      onScan(cleaned);
+      // Call parent without causing camera restart
+      onScanRef.current(cleaned);
 
-      // Release lock after small delay
+      // Release lock after short delay for next item
       setTimeout(() => {
         scanLockRef.current = false;
-      }, 1000);
+      }, 500);
     },
-    [isProcessing, onScan, playBeep]
+    [playBeep]
   );
 
   const startScanner = useCallback(async () => {
@@ -89,7 +100,9 @@ export default function BarcodeScanner({
     try {
       if (html5QrCodeRef.current) {
         try {
-          await html5QrCodeRef.current.stop();
+          if (html5QrCodeRef.current.isScanning) {
+            await html5QrCodeRef.current.stop();
+          }
         } catch {
           // ignore
         }
@@ -102,7 +115,7 @@ export default function BarcodeScanner({
       html5QrCodeRef.current = qrCode;
 
       const config = {
-        fps: 15,
+        fps: 20,
         qrbox: { width: 250, height: 250 },
         aspectRatio: 1.0,
       };
@@ -121,7 +134,7 @@ export default function BarcodeScanner({
       setIsScanning(true);
       setHasCamera(true);
     } catch (err) {
-      console.warn('[Scanner] Camera start failed:', err);
+      console.warn('[Scanner] Camera start error:', err);
       setIsScanning(false);
       setCameraError(
         'Camera access unavailable or permission denied. You can still enter or paste QR codes manually below.'
@@ -130,23 +143,14 @@ export default function BarcodeScanner({
     }
   }, [facingMode, handleSuccessfulScan]);
 
-  const stopScanner = useCallback(async () => {
-    if (html5QrCodeRef.current && isScanning) {
-      try {
-        await html5QrCodeRef.current.stop();
-      } catch {
-        // ignore
-      }
-      setIsScanning(false);
-    }
-  }, [isScanning]);
-
   useEffect(() => {
     startScanner();
     return () => {
       if (html5QrCodeRef.current) {
         try {
-          html5QrCodeRef.current.stop();
+          if (html5QrCodeRef.current.isScanning) {
+            html5QrCodeRef.current.stop();
+          }
         } catch {
           // ignore
         }
@@ -168,7 +172,7 @@ export default function BarcodeScanner({
   return (
     <div className="w-full max-w-md mx-auto flex flex-col items-center">
       {/* Scanner Viewfinder Box */}
-      <div className="relative w-full aspect-square bg-[#111111] overflow-hidden rounded-md border border-[#E5E5E5] flex items-center justify-center">
+      <div className="relative w-full aspect-square bg-[#111111] overflow-hidden rounded-xl border border-[#E5E5E5] flex items-center justify-center">
         {/* Scanner Container Element */}
         <div id="qr-reader-container" className="w-full h-full" />
 
@@ -188,11 +192,11 @@ export default function BarcodeScanner({
           </div>
         </div>
 
-        {/* Overlay when processing */}
+        {/* Minimal Non-blocking Overlay when processing */}
         {isProcessing && (
-          <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center text-white z-20">
-            <RefreshCw className="w-8 h-8 animate-spin mb-2" />
-            <p className="text-sm font-semibold tracking-wide">Processing QR Code...</p>
+          <div className="absolute top-3 right-3 bg-black/80 text-white px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow-sm z-20">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>Saving...</span>
           </div>
         )}
 
@@ -215,7 +219,7 @@ export default function BarcodeScanner({
 
       {/* Viewfinder Controls & Guide */}
       <div className="w-full flex items-center justify-between mt-3 text-xs text-[#666666]">
-        <span className="truncate pr-2">{placeholderText}</span>
+        <span className="truncate pr-2 font-medium">{placeholderText}</span>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
@@ -239,26 +243,21 @@ export default function BarcodeScanner({
       </div>
 
       {/* Manual Input / Hardware Scanner Gun Input Form */}
-      <form onSubmit={handleManualSubmit} className="w-full mt-4">
-        <label className="block text-xs font-semibold text-[#111111] mb-1">
-          Barcode Gun or Manual Entry
-        </label>
+      <form onSubmit={handleManualSubmit} className="w-full mt-3">
         <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={manualInput}
-              onChange={(e) => setManualInput(e.target.value)}
-              placeholder={
-                expectedType === 'batch'
-                  ? 'e.g. BAT-A00001'
-                  : expectedType === 'kit'
-                  ? 'e.g. KIT-A00001'
-                  : 'e.g. A00001'
-              }
-              className="w-full px-3 py-2 text-sm bg-white border border-[#E5E5E5] rounded focus:outline-none focus:border-black font-mono"
-            />
-          </div>
+          <input
+            type="text"
+            value={manualInput}
+            onChange={(e) => setManualInput(e.target.value)}
+            placeholder={
+              expectedType === 'batch'
+                ? 'e.g. BAT-A00001'
+                : expectedType === 'kit'
+                ? 'e.g. KIT-A00001'
+                : 'e.g. A00001'
+            }
+            className="flex-1 px-3 py-2 text-xs bg-white border border-[#E5E5E5] rounded focus:outline-none focus:border-black font-mono"
+          />
           <button
             type="submit"
             disabled={!manualInput.trim() || isProcessing}
@@ -267,9 +266,6 @@ export default function BarcodeScanner({
             Submit
           </button>
         </div>
-        <p className="text-[11px] text-[#888888] mt-1">
-          Supports handheld Bluetooth / USB barcode scanners in keyboard mode.
-        </p>
       </form>
     </div>
   );
