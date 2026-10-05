@@ -35,23 +35,23 @@ const FORMAT_CONFIGS: Record<EntityType, StickerFormatConfig> = {
   serial: {
     type: 'serial',
     title: 'Serial Number',
-    size: '1.5" × 1.5"',
-    stickersPerSheet: 63,
-    description: '63 stickers / sheet',
+    size: '100 mm × 50 mm',
+    stickersPerSheet: 24,
+    description: '24 stickers / sheet (100×50mm)',
   },
   batch: {
     type: 'batch',
     title: 'Batch Number',
-    size: '2.0" × 2.0"',
-    stickersPerSheet: 35,
-    description: '35 stickers / sheet',
+    size: '100 mm × 50 mm',
+    stickersPerSheet: 24,
+    description: '24 stickers / sheet (100×50mm)',
   },
   kit: {
     type: 'kit',
     title: 'Kit Number',
-    size: '2.0" × 2.0"',
-    stickersPerSheet: 35,
-    description: '35 stickers / sheet',
+    size: '100 mm × 50 mm',
+    stickersPerSheet: 24,
+    description: '24 stickers / sheet (100×50mm)',
   },
 };
 
@@ -67,7 +67,7 @@ export default function QRGeneratorPage() {
   // Live Sequence Range from DB
   const [nextIndex, setNextIndex] = useState<number>(0);
   const [firstCode, setFirstCode] = useState<string>('A00001');
-  const [lastCode, setLastCode] = useState<string>('A00063');
+  const [lastCode, setLastCode] = useState<string>('A00024');
   const [historyCount, setHistoryCount] = useState<number>(0);
   const [loadingSequence, setLoadingSequence] = useState<boolean>(true);
 
@@ -201,8 +201,12 @@ export default function QRGeneratorPage() {
         (item) => `
         <div class="sticker-cell">
           <img src="${item.dataUrl}" class="qr-img" alt="${item.code}" />
-          <div class="qr-code">${item.code}</div>
-          <div class="qr-sub">${config.size} ${config.title}</div>
+          <div class="sticker-details">
+            <div class="qr-code">${item.code}</div>
+            <div class="qr-sub">${config.title.toUpperCase()}</div>
+            ${item.productName ? `<div class="qr-product">${item.productName}</div>` : ''}
+            <div class="qr-dim">100 mm × 50 mm</div>
+          </div>
         </div>
       `
       )
@@ -212,19 +216,19 @@ export default function QRGeneratorPage() {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Print QR Sheet - ${config.title} (${items.length} QRs)</title>
+          <title>Print QR Sheet - ${config.title} (${items.length} QRs · 100mm × 50mm)</title>
           <style>
             @page {
               size: 12in 18in;
-              margin: 0.25in;
+              margin: 8mm;
             }
             * {
               box-sizing: border-box;
             }
             body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
               margin: 0;
-              padding: 0.2in;
+              padding: 0;
               background: #fff;
               color: #000;
             }
@@ -234,43 +238,76 @@ export default function QRGeneratorPage() {
               font-size: 11px;
               font-weight: bold;
               border-bottom: 2px solid #000;
-              padding-bottom: 6px;
-              margin-bottom: 12px;
+              padding: 6px 8px;
+              margin-bottom: 6mm;
             }
             .sheet-grid {
-              display: grid;
-              grid-template-columns: repeat(${config.type === 'serial' ? '7' : '5'}, 1fr);
-              gap: 8px;
+              display: flex;
+              flex-wrap: wrap;
+              gap: 4mm;
+              justify-content: flex-start;
             }
             .sticker-cell {
-              border: 1px dashed #bbb;
+              width: 100mm;
+              height: 50mm;
+              border: 1px dashed #999;
               border-radius: 4px;
-              padding: 6px 4px;
-              text-align: center;
+              padding: 4mm 6mm;
+              box-sizing: border-box;
               display: flex;
-              flex-direction: column;
+              flex-direction: row;
               align-items: center;
-              justify-content: center;
+              justify-content: flex-start;
+              gap: 5mm;
               page-break-inside: avoid;
+              overflow: hidden;
+              background: #fff;
             }
             .qr-img {
-              width: ${config.type === 'serial' ? '92px' : '110px'};
-              height: ${config.type === 'serial' ? '92px' : '110px'};
-              display: block;
-              margin: 0 auto;
+              width: 40mm;
+              height: 40mm;
+              object-fit: contain;
+              flex-shrink: 0;
+            }
+            .sticker-details {
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              text-align: left;
+              flex-grow: 1;
+              min-width: 0;
             }
             .qr-code {
-              font-size: 12px;
+              font-size: 20px;
               font-weight: 900;
               font-family: monospace;
               letter-spacing: 0.5px;
-              margin-top: 2px;
+              color: #000;
+              line-height: 1.1;
+              word-break: break-all;
             }
             .qr-sub {
-              font-size: 8px;
-              color: #555;
+              font-size: 11px;
+              font-weight: bold;
+              color: #111;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-top: 4px;
+            }
+            .qr-product {
+              font-size: 10px;
+              color: #444;
+              margin-top: 2px;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              max-width: 45mm;
+            }
+            .qr-dim {
+              font-size: 9px;
+              color: #666;
               font-weight: 600;
-              margin-top: 1px;
+              margin-top: 3px;
             }
             @media print {
               .no-print { display: none; }
@@ -280,7 +317,7 @@ export default function QRGeneratorPage() {
         </head>
         <body>
           <div class="header-info">
-            <span>FORMAT: ${config.title.toUpperCase()} (${config.size})</span>
+            <span>FORMAT: ${config.title.toUpperCase()} (100 mm × 50 mm)</span>
             <span>RANGE: ${items[0]?.code || ''} → ${items[items.length - 1]?.code || ''}</span>
             <span>TOTAL: ${items.length} STICKERS (${sheets} SHEET${sheets > 1 ? 'S' : ''})</span>
             <span>12" × 18" DIGITAL PAPER</span>
@@ -408,16 +445,21 @@ export default function QRGeneratorPage() {
 
           {/* Section: Sticker Format */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-[#111111]">
-              Sticker Format
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-[#111111]">
+                Sticker Format
+              </label>
+              <span className="text-[11px] font-mono font-bold text-black bg-neutral-100 px-2 py-0.5 rounded border border-[#E5E5E5]">
+                100 mm × 50 mm
+              </span>
+            </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {/* Option 1: Serial Number */}
               <button
                 type="button"
                 onClick={() => setSelectedFormat('serial')}
-                className={`p-3.5 rounded-xl text-left transition flex flex-col justify-between border ${
+                className={`p-3 rounded-xl text-left transition flex flex-col justify-between border ${
                   selectedFormat === 'serial'
                     ? 'bg-black text-white border-black shadow-sm'
                     : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
@@ -426,21 +468,21 @@ export default function QRGeneratorPage() {
                 <div className="flex items-center justify-between w-full">
                   <span className="font-black text-xs">Serial Number</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold ${
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
                       selectedFormat === 'serial'
                         ? 'bg-white text-black'
                         : 'bg-neutral-100 text-[#555555]'
                     }`}
                   >
-                    1.5&quot; × 1.5&quot;
+                    100 × 50 mm
                   </span>
                 </div>
                 <span
-                  className={`text-[11px] mt-2 ${
+                  className={`text-[10px] mt-2 ${
                     selectedFormat === 'serial' ? 'text-neutral-300' : 'text-[#666666]'
                   }`}
                 >
-                  63 stickers / sheet
+                  24 stickers / sheet
                 </span>
               </button>
 
@@ -448,7 +490,7 @@ export default function QRGeneratorPage() {
               <button
                 type="button"
                 onClick={() => setSelectedFormat('batch')}
-                className={`p-3.5 rounded-xl text-left transition flex flex-col justify-between border ${
+                className={`p-3 rounded-xl text-left transition flex flex-col justify-between border ${
                   selectedFormat === 'batch'
                     ? 'bg-black text-white border-black shadow-sm'
                     : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
@@ -457,35 +499,53 @@ export default function QRGeneratorPage() {
                 <div className="flex items-center justify-between w-full">
                   <span className="font-black text-xs">Batch Number</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold ${
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
                       selectedFormat === 'batch'
                         ? 'bg-white text-black'
                         : 'bg-neutral-100 text-[#555555]'
                     }`}
                   >
-                    2.0&quot; × 2.0&quot;
+                    100 × 50 mm
                   </span>
                 </div>
                 <span
-                  className={`text-[11px] mt-2 ${
+                  className={`text-[10px] mt-2 ${
                     selectedFormat === 'batch' ? 'text-neutral-300' : 'text-[#666666]'
                   }`}
                 >
-                  35 stickers / sheet
+                  24 stickers / sheet
                 </span>
               </button>
-            </div>
 
-            {/* Optional Kit Format selector toggle */}
-            <div className="pt-1 flex items-center justify-end">
+              {/* Option 3: Kit Number */}
               <button
                 type="button"
-                onClick={() => setSelectedFormat(selectedFormat === 'kit' ? 'serial' : 'kit')}
-                className={`text-[11px] font-semibold underline ${
-                  selectedFormat === 'kit' ? 'text-black font-bold' : 'text-[#888888] hover:text-black'
+                onClick={() => setSelectedFormat('kit')}
+                className={`p-3 rounded-xl text-left transition flex flex-col justify-between border ${
+                  selectedFormat === 'kit'
+                    ? 'bg-black text-white border-black shadow-sm'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
                 }`}
               >
-                {selectedFormat === 'kit' ? '✓ Kit Format Selected' : 'Switch to Kit Number Format'}
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-black text-xs">Kit Number</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
+                      selectedFormat === 'kit'
+                        ? 'bg-white text-black'
+                        : 'bg-neutral-100 text-[#555555]'
+                    }`}
+                  >
+                    100 × 50 mm
+                  </span>
+                </div>
+                <span
+                  className={`text-[10px] mt-2 ${
+                    selectedFormat === 'kit' ? 'text-neutral-300' : 'text-[#666666]'
+                  }`}
+                >
+                  24 stickers / sheet
+                </span>
               </button>
             </div>
           </div>
@@ -620,20 +680,25 @@ export default function QRGeneratorPage() {
           {/* Card 2: Sticker Preview Card */}
           <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4">
             <div>
-              <h2 className="text-sm font-black text-[#111111]">Sticker Preview</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-black text-[#111111]">Sticker Preview</h2>
+                <span className="text-[10px] font-mono font-bold text-black bg-neutral-100 px-2 py-0.5 rounded border border-[#E5E5E5]">
+                  100 mm × 50 mm
+                </span>
+              </div>
               <p className="text-xs text-[#666666] mt-0.5">
-                Sample appearance on 12&quot; × 18&quot; sheet
+                Exact physical scale: 100 mm width × 50 mm height (12&quot; × 18&quot; digital paper)
               </p>
             </div>
 
-            {/* 6 Preview Cards Grid (2 rows of 3) */}
-            <div className="grid grid-cols-3 gap-3">
-              {previewQRs.map((item, idx) => (
+            {/* 6 Preview Cards Grid - 100mm x 50mm Landscape Layout */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {previewQRs.map((item) => (
                 <div
                   key={item.code}
-                  className="bg-white border border-[#E5E5E5] rounded-xl p-3 flex flex-col items-center justify-center text-center transition hover:border-[#CCCCCC]"
+                  className="bg-white border border-[#E5E5E5] rounded-xl p-3 flex flex-row items-center gap-3.5 transition hover:border-black"
                 >
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center mb-2">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 flex items-center justify-center bg-white p-1 border border-[#EEEEEE] rounded">
                     {item.dataUrl ? (
                       <img
                         src={item.dataUrl}
@@ -646,11 +711,20 @@ export default function QRGeneratorPage() {
                       </div>
                     )}
                   </div>
-                  <div className="font-mono font-black text-xs text-[#111111]">
-                    {item.code}
-                  </div>
-                  <div className="text-[10px] text-[#777777] mt-0.5 font-medium">
-                    {currentConfig.size} {selectedFormat === 'serial' ? 'Serial' : selectedFormat === 'batch' ? 'Batch' : 'Kit'}
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="font-mono font-black text-base text-[#111111] truncate">
+                      {item.code}
+                    </div>
+                    <div className="text-[11px] font-bold text-[#333333] uppercase mt-0.5">
+                      {selectedFormat === 'serial'
+                        ? 'Serial Number'
+                        : selectedFormat === 'batch'
+                        ? 'Batch Number'
+                        : 'Kit Number'}
+                    </div>
+                    <div className="inline-block mt-1 px-2 py-0.5 bg-neutral-100 border border-[#E5E5E5] rounded text-[10px] font-mono font-bold text-[#555555]">
+                      100 mm × 50 mm
+                    </div>
                   </div>
                 </div>
               ))}

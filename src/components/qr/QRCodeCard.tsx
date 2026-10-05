@@ -47,52 +47,95 @@ export default function QRCodeCard({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Print Label - ${code}</title>
+          <title>Print Label - ${code} (100mm × 50mm)</title>
           <style>
             @page {
-              size: auto;
-              margin: 10mm;
+              size: 100mm 50mm;
+              margin: 0;
+            }
+            * {
+              box-sizing: border-box;
             }
             body {
-              font-family: Arial, sans-serif;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+              width: 100mm;
+              height: 50mm;
               display: flex;
-              flex-direction: column;
               align-items: center;
               justify-content: center;
-              padding: 20px;
+              background: #fff;
               color: #000;
             }
             .label-box {
-              border: 2px solid #000;
-              padding: 16px;
-              text-align: center;
-              display: inline-block;
-              border-radius: 4px;
+              width: 100mm;
+              height: 50mm;
+              border: 1px dashed #999;
+              padding: 4mm 6mm;
+              display: flex;
+              flex-direction: row;
+              align-items: center;
+              justify-content: flex-start;
+              gap: 5mm;
+              box-sizing: border-box;
+              overflow: hidden;
             }
             .qr-img {
-              width: ${type === 'serial' ? '180px' : '220px'};
-              height: ${type === 'serial' ? '180px' : '220px'};
-              margin-bottom: 8px;
+              width: 40mm;
+              height: 40mm;
+              object-fit: contain;
+              flex-shrink: 0;
+            }
+            .label-details {
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              text-align: left;
+              flex-grow: 1;
+              min-width: 0;
             }
             .qr-code-text {
               font-size: 20px;
               font-weight: 900;
-              letter-spacing: 1px;
-              margin-top: 4px;
+              font-family: monospace;
+              letter-spacing: 0.5px;
+              color: #000;
+              line-height: 1.1;
+              word-break: break-all;
             }
             .qr-subtext {
-              font-size: 13px;
+              font-size: 11px;
               font-weight: bold;
-              margin-top: 4px;
-              color: #333;
+              margin-top: 3px;
+              color: #111;
+              text-transform: uppercase;
+            }
+            .qr-product {
+              font-size: 10px;
+              color: #444;
+              margin-top: 2px;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .qr-dim {
+              font-size: 9px;
+              color: #666;
+              font-weight: 600;
+              margin-top: 3px;
             }
           </style>
         </head>
         <body>
           <div class="label-box">
             <img src="${dataUrl}" class="qr-img" alt="${code}" />
-            <div class="qr-code-text">${code}</div>
-            ${productName ? `<div class="qr-subtext">${productName}</div>` : ''}
+            <div class="label-details">
+              <div class="qr-code-text">${code}</div>
+              <div class="qr-subtext">${type.toUpperCase()} IDENTIFIER</div>
+              ${productName ? `<div class="qr-product">${productName}</div>` : ''}
+              <div class="qr-dim">100 mm × 50 mm</div>
+            </div>
           </div>
           <script>
             window.onload = function() {
@@ -140,6 +183,9 @@ export default function QRCodeCard({
             {partCode}
           </div>
         )}
+        <div className="inline-block mt-1.5 px-2 py-0.5 bg-neutral-100 border border-[#E5E5E5] rounded text-[10px] font-mono font-bold text-[#666666]">
+          100 mm × 50 mm
+        </div>
       </div>
 
       {/* Action Buttons */}
