@@ -19,6 +19,8 @@ import {
   AlertCircle,
   X,
   FileText,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { EntityType, Product } from '@/types';
 import { formatCode } from '@/lib/sequence';
@@ -74,6 +76,20 @@ export default function QRGeneratorPage() {
   const [historyCount, setHistoryCount] = useState<number>(0);
   const [loadingSequence, setLoadingSequence] = useState<boolean>(true);
 
+  // Independent Sequence Counters (Serial, Batch, Kit)
+  const [counters, setCounters] = useState<{
+    serial: { index: number; nextCode: string };
+    batch: { index: number; nextCode: string };
+    kit: { index: number; nextCode: string };
+  }>({
+    serial: { index: 0, nextCode: 'A00001' },
+    batch: { index: 0, nextCode: 'BAT-A00001' },
+    kit: { index: 0, nextCode: 'KIT-A00001' },
+  });
+  const [showResetModal, setShowResetModal] = useState<boolean>(false);
+  const [resetTarget, setResetTarget] = useState<EntityType | 'all'>('serial');
+  const [isResetting, setIsResetting] = useState<boolean>(false);
+
   // Sample Preview QR Codes (6 preview codes = 3 thermal pages of 2 QRs)
   const [previewQRs, setPreviewQRs] = useState<Array<{ code: string; dataUrl: string }>>([]);
 
@@ -103,6 +119,10 @@ export default function QRGeneratorPage() {
         setLastCode(data.lastCode);
         setHistoryCount(data.historyCount || 0);
 
+        if (data.counters) {
+          setCounters(data.counters);
+        }
+
         // Generate preview sample codes dynamically using client QRCode
         generatePreviewSamples(data.nextIndex, selectedFormat);
       }
@@ -112,6 +132,34 @@ export default function QRGeneratorPage() {
       setLoadingSequence(false);
     }
   }, [selectedFormat, totalStickers]);
+
+  // Handle in-app counter reset
+  const handleResetCounter = async (target: EntityType | 'all') => {
+    setIsResetting(true);
+    try {
+      const res = await fetch('/api/qr/reset-counter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: target }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.counters) {
+          setCounters(data.counters);
+        }
+        setSuccessBanner(data.message || 'Counter reset successfully!');
+        setShowResetModal(false);
+        fetchLiveSequence();
+      } else {
+        setErrorMessage(data.error || 'Failed to reset counter');
+      }
+    } catch (err) {
+      console.error('Error resetting counter:', err);
+      setErrorMessage('Network error while resetting counter');
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   // Generate 6 sample QR codes for preview (3 thermal labels)
   const generatePreviewSamples = async (startIndex: number, type: EntityType) => {
@@ -712,7 +760,20 @@ export default function QRGeneratorPage() {
         <div className="lg:col-span-7 space-y-5">
           {/* Card 1: Sequence Range Card */}
           <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4">
-            <h2 className="text-sm font-black text-[#111111]">Sequence Range</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-black text-[#111111]">Sequence Range</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setResetTarget(selectedFormat);
+                  setShowResetModal(true);
+                }}
+                className="px-2.5 py-1 text-xs font-bold text-neutral-700 hover:text-black border border-[#E5E5E5] hover:border-black rounded-lg transition flex items-center gap-1.5 bg-white"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-neutral-500" />
+                <span>Reset Counter</span>
+              </button>
+            </div>
 
             <div className="bg-neutral-50/70 border border-[#E5E5E5] rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
@@ -742,6 +803,79 @@ export default function QRGeneratorPage() {
                 <span className="font-semibold text-[#111111]">
                   50mm × 100mm ({numPages} Label{numPages > 1 ? 's' : ''} · {totalStickers} QR Stickers)
                 </span>
+              </div>
+            </div>
+
+            {/* Independent Counter Status Bar */}
+            <div className="pt-2 border-t border-[#E5E5E5] space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-[#888888] uppercase tracking-wider">
+                  Independent Live Counters
+                </span>
+                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  Separate & Isolated
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedFormat('serial')}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    selectedFormat === 'serial'
+                      ? 'border-black bg-neutral-900 text-white shadow-sm'
+                      : 'border-[#E5E5E5] bg-neutral-50/70 hover:border-neutral-400 text-neutral-800'
+                  }`}
+                >
+                  <div className={`text-[10px] font-bold uppercase tracking-wider ${selectedFormat === 'serial' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Serial
+                  </div>
+                  <div className="font-mono font-bold text-xs mt-0.5">
+                    {counters.serial.nextCode}
+                  </div>
+                  <div className={`text-[9px] mt-0.5 ${selectedFormat === 'serial' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Generated: {counters.serial.index}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedFormat('batch')}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    selectedFormat === 'batch'
+                      ? 'border-black bg-neutral-900 text-white shadow-sm'
+                      : 'border-[#E5E5E5] bg-neutral-50/70 hover:border-neutral-400 text-neutral-800'
+                  }`}
+                >
+                  <div className={`text-[10px] font-bold uppercase tracking-wider ${selectedFormat === 'batch' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Batch
+                  </div>
+                  <div className="font-mono font-bold text-xs mt-0.5">
+                    {counters.batch.nextCode}
+                  </div>
+                  <div className={`text-[9px] mt-0.5 ${selectedFormat === 'batch' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Generated: {counters.batch.index}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedFormat('kit')}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    selectedFormat === 'kit'
+                      ? 'border-black bg-neutral-900 text-white shadow-sm'
+                      : 'border-[#E5E5E5] bg-neutral-50/70 hover:border-neutral-400 text-neutral-800'
+                  }`}
+                >
+                  <div className={`text-[10px] font-bold uppercase tracking-wider ${selectedFormat === 'kit' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Kit
+                  </div>
+                  <div className="font-mono font-bold text-xs mt-0.5">
+                    {counters.kit.nextCode}
+                  </div>
+                  <div className={`text-[9px] mt-0.5 ${selectedFormat === 'kit' ? 'text-neutral-400' : 'text-[#888888]'}`}>
+                    Generated: {counters.kit.index}
+                  </div>
+                </button>
               </div>
             </div>
           </div>
@@ -900,6 +1034,128 @@ export default function QRGeneratorPage() {
                 className="w-full py-2 bg-black text-white text-xs font-bold rounded-lg hover:bg-neutral-800 transition"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* 4. COUNTER RESET CONFIRMATION MODAL                                 */}
+      {/* =================================================================== */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white border-2 border-black rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl animate-fadeIn">
+            <div className="flex items-center justify-between pb-2 border-b border-[#E5E5E5]">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-black" />
+                <h2 className="text-base font-black text-[#111111]">
+                  Reset Sequence Counter
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowResetModal(false)}
+                className="text-[#666666] hover:text-black"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#666666] leading-relaxed">
+              Each sticker identifier maintains its own independent sequence counter. Resetting a counter rewinds its next starting code back to #1 (e.g. <span className="font-mono font-bold text-black">A00001</span>, <span className="font-mono font-bold text-black">BAT-A00001</span>, or <span className="font-mono font-bold text-black">KIT-A00001</span>).
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-[#111111] block">
+                Select Counter to Reset:
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResetTarget('serial')}
+                  className={`p-2.5 rounded-xl border text-left text-xs font-bold transition ${
+                    resetTarget === 'serial'
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-black border-[#E5E5E5] hover:border-black'
+                  }`}
+                >
+                  <div>Serial Number</div>
+                  <div className={`text-[10px] font-mono font-normal mt-0.5 ${resetTarget === 'serial' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                    Next: {counters.serial.nextCode}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setResetTarget('batch')}
+                  className={`p-2.5 rounded-xl border text-left text-xs font-bold transition ${
+                    resetTarget === 'batch'
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-black border-[#E5E5E5] hover:border-black'
+                  }`}
+                >
+                  <div>Batch Number</div>
+                  <div className={`text-[10px] font-mono font-normal mt-0.5 ${resetTarget === 'batch' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                    Next: {counters.batch.nextCode}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setResetTarget('kit')}
+                  className={`p-2.5 rounded-xl border text-left text-xs font-bold transition ${
+                    resetTarget === 'kit'
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-black border-[#E5E5E5] hover:border-black'
+                  }`}
+                >
+                  <div>Kit Number</div>
+                  <div className={`text-[10px] font-mono font-normal mt-0.5 ${resetTarget === 'kit' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                    Next: {counters.kit.nextCode}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setResetTarget('all')}
+                  className={`p-2.5 rounded-xl border text-left text-xs font-bold transition ${
+                    resetTarget === 'all'
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-black border-[#E5E5E5] hover:border-black'
+                  }`}
+                >
+                  <div>All 3 Counters</div>
+                  <div className={`text-[10px] font-normal mt-0.5 ${resetTarget === 'all' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                    Reset All to #1
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <span>
+                Resetting will restart numbering from <strong>{resetTarget === 'all' ? '00001 for all types' : resetTarget === 'serial' ? 'A00001' : resetTarget === 'batch' ? 'BAT-A00001' : 'KIT-A00001'}</strong>. Existing scanned inventory and products are preserved.
+              </span>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#E5E5E5]">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetModal(false)}
+                className="px-4 py-2 border border-[#E5E5E5] hover:border-black rounded-lg text-xs font-bold text-black transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => handleResetCounter(resetTarget)}
+                className="px-4 py-2 bg-black hover:bg-neutral-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+              >
+                {isResetting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>Confirm Reset</span>
               </button>
             </div>
           </div>

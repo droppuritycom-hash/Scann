@@ -13,6 +13,13 @@ export async function GET(req: NextRequest) {
     const { nextIndex, nextCode } = await peekNextSequentialCode(db, type);
     const lastCode = formatCode(nextIndex + Math.max(1, count) - 1, type);
 
+    // Also get independent counters for all 3 types
+    const [serialDoc, batchDoc, kitDoc] = await Promise.all([
+      peekNextSequentialCode(db, 'serial'),
+      peekNextSequentialCode(db, 'batch'),
+      peekNextSequentialCode(db, 'kit'),
+    ]);
+
     // Also get audit count for history tab
     const auditColl = db.collection('auditLogs');
     const historyCount = await auditColl.countDocuments({ action: 'QR_GENERATED' });
@@ -24,6 +31,11 @@ export async function GET(req: NextRequest) {
       firstCode: nextCode,
       lastCode,
       historyCount,
+      counters: {
+        serial: { index: serialDoc.nextIndex, nextCode: serialDoc.nextCode },
+        batch: { index: batchDoc.nextIndex, nextCode: batchDoc.nextCode },
+        kit: { index: kitDoc.nextIndex, nextCode: kitDoc.nextCode },
+      },
     });
   } catch (err) {
     console.error('[API /api/qr/next-sequence] Error:', err);

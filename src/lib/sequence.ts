@@ -97,3 +97,22 @@ export async function peekNextSequentialCode(
     nextCode: formatCode(nextIndex, type),
   };
 }
+
+/**
+ * Resets sequence counter(s) back to 0.
+ * If type is 'all' or omitted, resets all 3 counters (serial, batch, kit).
+ */
+export async function resetSequenceCounter(
+  db: Db,
+  type: EntityType | 'all' = 'all'
+): Promise<{ reset: string[] }> {
+  const sequenceColl = db.collection('sequenceCounters');
+  if (type === 'all') {
+    await sequenceColl.deleteMany({});
+    return { reset: ['serial', 'batch', 'kit'] };
+  } else {
+    await sequenceColl.deleteOne({ _id: type as unknown as import('mongodb').ObjectId });
+    return { reset: [type] };
+  }
+}
+
