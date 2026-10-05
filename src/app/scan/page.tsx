@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Layers,
@@ -14,6 +14,7 @@ import {
   Box,
   Plus,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 import BarcodeScanner from '@/components/scanner/BarcodeScanner';
 import { Batch, Kit, InventoryItem, Product } from '@/types';
@@ -51,6 +52,9 @@ export default function ScanPage() {
   const [kitStep, setKitStep] = useState<KitStep>('scan_kit');
   const [currentKit, setCurrentKit] = useState<Kit | null>(null);
   const [kitProducts, setKitProducts] = useState<InventoryItem[]>([]);
+  const [availableKitSerials, setAvailableKitSerials] = useState<InventoryItem[]>([]);
+  const [availableSearch, setAvailableSearch] = useState('');
+  const [isLoadingAvailable, setIsLoadingAvailable] = useState<boolean>(false);
 
   // ----------------------------------------------------
   // Product Selector State & Cache
@@ -158,6 +162,40 @@ export default function ScanPage() {
     acc[key].count += 1;
     return acc;
   }, {});
+
+  // Fetch available product serials for kit assembly (items with status 'in_batch')
+  const fetchAvailableKitSerials = useCallback(async () => {
+    setIsLoadingAvailable(true);
+    try {
+      const res = await fetch('/api/inventory?status=in_batch&limit=100&sort=desc');
+      const data = await res.json();
+      if (data.items) {
+        setAvailableKitSerials(data.items);
+      }
+    } catch (err) {
+      console.error('Failed to load available serials for kit:', err);
+    } finally {
+      setIsLoadingAvailable(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode === 'kit' && kitStep === 'scanning') {
+      fetchAvailableKitSerials();
+    }
+  }, [mode, kitStep, fetchAvailableKitSerials]);
+
+  // Filter available serials for kit by search query
+  const filteredAvailableSerials = availableKitSerials.filter((item) => {
+    if (!availableSearch) return true;
+    const q = availableSearch.toLowerCase();
+    return (
+      item.serialCode.toLowerCase().includes(q) ||
+      item.productName.toLowerCase().includes(q) ||
+      item.batchCode.toLowerCase().includes(q) ||
+      (item.partCode && item.partCode.toLowerCase().includes(q))
+    );
+  });
 
   // ----------------------------------------------------
   // BATCH HANDLERS
@@ -333,6 +371,7 @@ export default function ScanPage() {
       setCurrentKit(data.kit);
       setKitProducts(data.products || []);
       setKitStep('scanning');
+      fetchAvailableKitSerials();
     } catch {
       setErrorMessage('Unable to connect to the server. Check your connection.');
     } finally {
@@ -499,6 +538,11 @@ export default function ScanPage() {
         setKitProducts((prev) => [data.item, ...prev]);
         setCurrentKit((prev) => (prev ? { ...prev, itemCount: prev.itemCount + 1 } : null));
 
+        // Real-time update: remove from available kit serials list
+        setAvailableKitSerials((prev) =>
+          prev.filter((i) => i.serialCode !== pendingConfirmSave.serial)
+        );
+
         setFloatingToast({
           serial: pendingConfirmSave.serial,
           productName: pendingConfirmSave.productName,
@@ -543,6 +587,8 @@ export default function ScanPage() {
     setKitStep('scan_kit');
     setCurrentKit(null);
     setKitProducts([]);
+    setAvailableKitSerials([]);
+    setAvailableSearch('');
 
     setErrorMessage(null);
     setDuplicateAlert(null);
@@ -1242,6 +1288,109 @@ export default function ScanPage() {
               </div>
             )}
           </div>
+
+          {/* AVAILABLE PRODUCT SERIALS READY TO ADD TO KIT */}
+          {kitStep === 'scanning' && currentKit && (
+            <div className="border border-[#E5E5E5] rounded-lg p-3 bg-white space-y-3">
+              <div className="flex items-center justify-between border-b border-[#E5E5E5] pb-2">
+                <div>
+                  <span className="font-bold text-[#111111] text-xs flex items-center gap-1.5">
+                    <span>Available Product Serials to Add</span>
+                    <span className="bg-black text-white text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold">
+                      {filteredAvailableSerials.length}
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-[#666666] block mt-0.5">
+                    Select an available serial from inventory or scan with camera above
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchAvailableKitSerials}
+                  className="p-1 border border-[#E5E5E5] rounded hover:bg-neutral-100 text-[#111111] transition"
+                  title="Refresh available serials"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAvailable ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {/* Search Available Serials */}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={availableSearch}
+                    onChange={(e) => setAvailableSearch(e.target.value)}
+                    placeholder="Search serial number (e.g. A00025) or product..."
+                    className="w-full text-xs px-3 py-1.5 pl-7 border border-[#E5E5E5] rounded focus:outline-none focus:border-black font-sans"
+                  />
+                  <Search className="w-3.5 h-3.5 text-[#888888] absolute left-2 top-1/2 -translate-y-1/2" />
+                  {availableSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAvailableSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-black"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Scrollable List of Available Serials */}
+              {filteredAvailableSerials.length > 0 ? (
+                <div className="max-h-56 overflow-y-auto space-y-1.5 divide-y divide-[#F0F0F0] pr-1">
+                  {filteredAvailableSerials.map((item) => (
+                    <div
+                      key={item._id?.toString() || item.serialCode}
+                      className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-[#111111] bg-neutral-100 px-1.5 py-0.5 rounded border border-[#E5E5E5]">
+                            {item.serialCode}
+                          </span>
+                          <span className="font-semibold text-[#111111] truncate">{item.productName}</span>
+                        </div>
+                        <div className="text-[10px] text-[#777777] font-mono mt-0.5">
+                          From Batch: <strong className="text-[#111111]">{item.batchCode}</strong>
+                          {item.partCode && ` • ${item.partCode}`}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingConfirmSave({
+                            mode: 'kit',
+                            serial: item.serialCode,
+                            productName: item.productName,
+                            partCode: item.partCode,
+                            batchCode: item.batchCode,
+                            kitCode: currentKit.code,
+                          });
+                        }}
+                        className="flex-shrink-0 px-3 py-1 bg-black text-white text-xs font-bold rounded hover:bg-neutral-800 transition flex items-center gap-1 shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-4 text-center text-xs text-[#888888] bg-neutral-50 rounded">
+                  {isLoadingAvailable ? (
+                    <span>Loading available serials...</span>
+                  ) : availableSearch ? (
+                    <span>No serials matched &quot;{availableSearch}&quot;</span>
+                  ) : (
+                    <span>No unassigned product serials in stock. Create &amp; scan batches first.</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Kit Products List */}
           {kitStep === 'scanning' && currentKit && (
