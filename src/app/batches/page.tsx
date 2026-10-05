@@ -88,84 +88,162 @@ export default function BatchesPage() {
           </button>
         </form>
 
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="text-xs px-3 py-2 border border-[#E5E5E5] rounded bg-white text-[#111111] focus:outline-none focus:border-black"
-        >
-          <option value="">All Statuses</option>
-          <option value="open">Open</option>
-          <option value="closed">Closed</option>
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="flex-1 sm:flex-none text-xs px-3 py-2 border border-[#E5E5E5] rounded bg-white text-[#111111] focus:outline-none focus:border-black"
+          >
+            <option value="">All Statuses</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </select>
+
+          {(search || status) && (
+            <button
+              onClick={() => {
+                setSearch('');
+                setStatus('');
+              }}
+              className="px-3 py-2 border border-[#E5E5E5] rounded text-xs text-[#666666] hover:bg-neutral-100 transition shrink-0"
+              title="Clear filters"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Batches Table (Section 35) */}
-      <div className="bg-white border border-[#E5E5E5] rounded overflow-hidden">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
-              <th className="py-2.5 px-3 font-mono">Batch Code</th>
-              <th className="py-2.5 px-3 font-mono">Base Code</th>
-              <th className="py-2.5 px-3">Products Registered</th>
-              <th className="py-2.5 px-3">Status</th>
-              <th className="py-2.5 px-3">Created Date</th>
-              <th className="py-2.5 px-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E5E5E5]">
-            {loading ? (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-[#888888]">
-                  Loading batches...
-                </td>
+      {/* Desktop Batches Table (Hidden on mobile) */}
+      <div className="hidden md:block bg-white border border-[#E5E5E5] rounded overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+            <thead>
+              <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
+                <th className="py-2.5 px-3 font-mono">Batch Code</th>
+                <th className="py-2.5 px-3 font-mono">Base Code</th>
+                <th className="py-2.5 px-3">Products Registered</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3">Created Date</th>
+                <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
-            ) : batches.length > 0 ? (
-              batches.map((b) => (
-                <tr key={b.code} className="hover:bg-neutral-50 transition">
-                  <td className="py-2.5 px-3 font-mono font-black text-[#111111]">
-                    <Link href={`/batches/${b.code}`} className="hover:underline flex items-center gap-1.5">
-                      {b.code}
-                    </Link>
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-[#666666]">
-                    {b.baseCode}
-                  </td>
-                  <td className="py-2.5 px-3 font-bold text-[#111111]">
-                    {b.productCount || 0}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        b.status === 'open'
-                          ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
-                          : 'bg-neutral-900 text-white'
-                      }`}
-                    >
-                      {b.status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
-                    {new Date(b.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <Link
-                      href={`/batches/${b.code}`}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-black hover:underline"
-                    >
-                      View Items →
-                    </Link>
+            </thead>
+            <tbody className="divide-y divide-[#E5E5E5]">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-[#888888]">
+                    Loading batches...
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-[#888888]">
-                  No batches created yet. Scan or generate a batch QR to begin.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              ) : batches.length > 0 ? (
+                batches.map((b) => (
+                  <tr key={b.code} className="hover:bg-neutral-50 transition">
+                    <td className="py-2.5 px-3 font-mono font-black text-[#111111]">
+                      <Link href={`/batches/${b.code}`} className="hover:underline flex items-center gap-1.5">
+                        {b.code}
+                      </Link>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[#666666]">
+                      {b.baseCode}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-[#111111]">
+                      {b.productCount || 0}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          b.status === 'open'
+                            ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
+                            : 'bg-neutral-900 text-white'
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
+                      {new Date(b.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <Link
+                        href={`/batches/${b.code}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-black hover:underline"
+                      >
+                        View Items →
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-[#888888]">
+                    No batches created yet. Scan or generate a batch QR to begin.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Mobile Batches Cards View (Visible on mobile screens < md) */}
+      <div className="md:hidden space-y-2.5">
+        {loading ? (
+          <div className="p-8 text-center text-xs text-[#888888] bg-white border border-[#E5E5E5] rounded">
+            Loading batches...
+          </div>
+        ) : batches.length > 0 ? (
+          batches.map((b) => (
+            <div
+              key={b.code}
+              className="p-3.5 bg-white border border-[#E5E5E5] rounded space-y-2.5 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <Link
+                  href={`/batches/${b.code}`}
+                  className="font-mono font-black text-sm text-[#111111] hover:underline"
+                >
+                  {b.code}
+                </Link>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                    b.status === 'open'
+                      ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
+                      : 'bg-neutral-900 text-white'
+                  }`}
+                >
+                  {b.status}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-[#F0F0F0]">
+                <div>
+                  <span className="text-[#888888] block">Base Code:</span>
+                  <span className="font-mono font-bold text-[#111111]">{b.baseCode}</span>
+                </div>
+                <div>
+                  <span className="text-[#888888] block">Registered Items:</span>
+                  <span className="font-bold text-[#111111]">{b.productCount || 0} units</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#F0F0F0] text-[11px]">
+                <span className="text-[#888888] font-mono">
+                  {new Date(b.createdAt).toLocaleDateString()}
+                </span>
+                <Link
+                  href={`/batches/${b.code}`}
+                  className="px-3 py-1 bg-black text-white text-[11px] font-bold rounded hover:bg-neutral-800 transition"
+                >
+                  View Items →
+                </Link>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="p-8 text-center text-xs text-[#888888] bg-white border border-[#E5E5E5] rounded">
+            No batches created yet. Scan or generate a batch QR to begin.
+          </div>
+        )}
       </div>
     </div>
   );

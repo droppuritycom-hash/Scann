@@ -186,67 +186,125 @@ export default function BatchDetailPage() {
           <span>Products in Batch ({products.length})</span>
         </h2>
 
-        <div className="bg-white border border-[#E5E5E5] rounded overflow-hidden">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
-                <th className="py-2.5 px-3 font-mono">Serial Code</th>
-                <th className="py-2.5 px-3">Product Name</th>
-                <th className="py-2.5 px-3 font-mono">Part Code</th>
-                <th className="py-2.5 px-3 font-mono">Assigned Kit</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3">Scan Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E5E5E5]">
-              {products.length > 0 ? (
-                products.map((item) => (
-                  <tr key={item.serialCode} className="hover:bg-neutral-50 transition">
-                    <td className="py-2.5 px-3 font-mono font-bold text-[#111111]">
-                      <Link href={`/search?q=${item.serialCode}`} className="hover:underline">
-                        {item.serialCode}
-                      </Link>
-                    </td>
-                    <td className="py-2.5 px-3 font-medium text-[#111111]">
-                      {item.productName}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-[#666666]">
-                      {item.partCode}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono">
-                      {item.kitCode ? (
-                        <Link href={`/kits/${item.kitCode}`} className="font-bold text-black hover:underline">
-                          {item.kitCode}
+        {/* Desktop Table View */}
+        <div className="hidden md:block bg-white border border-[#E5E5E5] rounded overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+              <thead>
+                <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
+                  <th className="py-2.5 px-3 font-mono">Serial Code</th>
+                  <th className="py-2.5 px-3">Product Name</th>
+                  <th className="py-2.5 px-3 font-mono">Part Code</th>
+                  <th className="py-2.5 px-3 font-mono">Assigned Kit</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">Scan Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E5E5E5]">
+                {products.length > 0 ? (
+                  products.map((item) => (
+                    <tr key={item.serialCode} className="hover:bg-neutral-50 transition">
+                      <td className="py-2.5 px-3 font-mono font-bold text-[#111111]">
+                        <Link href={`/search?q=${item.serialCode}`} className="hover:underline">
+                          {item.serialCode}
                         </Link>
-                      ) : (
-                        <span className="text-[#888888]">Unassigned</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          item.status === 'in_kit'
-                            ? 'bg-neutral-900 text-white'
-                            : 'bg-neutral-100 text-[#111111] border border-[#E5E5E5]'
-                        }`}
-                      >
-                        {item.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
-                      {new Date(item.createdAt).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 font-medium text-[#111111]">
+                        {item.productName}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-[#666666]">
+                        {item.partCode}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono">
+                        {item.kitCode ? (
+                          <Link href={`/kits/${item.kitCode}`} className="font-bold text-black hover:underline">
+                            {item.kitCode}
+                          </Link>
+                        ) : (
+                          <span className="text-[#888888]">Unassigned</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            item.status === 'in_kit'
+                              ? 'bg-neutral-900 text-white'
+                              : 'bg-neutral-100 text-[#111111] border border-[#E5E5E5]'
+                          }`}
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px] whitespace-nowrap">
+                        {new Date(item.createdAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-[#888888]">
+                      No products added to this batch yet.
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-[#888888]">
-                    No products added to this batch yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Mobile Cards View */}
+        <div className="md:hidden space-y-2.5">
+          {products.length > 0 ? (
+            products.map((item) => (
+              <div
+                key={item.serialCode}
+                className="p-3.5 bg-white border border-[#E5E5E5] rounded space-y-2 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <Link
+                    href={`/search?q=${item.serialCode}`}
+                    className="font-mono font-black text-sm text-[#111111] hover:underline"
+                  >
+                    {item.serialCode}
+                  </Link>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      item.status === 'in_kit'
+                        ? 'bg-neutral-900 text-white'
+                        : 'bg-neutral-100 text-[#111111] border border-[#E5E5E5]'
+                    }`}
+                  >
+                    {item.status}
+                  </span>
+                </div>
+
+                <div>
+                  <div className="font-bold text-[#111111]">{item.productName}</div>
+                  <div className="text-[11px] text-[#666666] font-mono">{item.partCode}</div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-[#F0F0F0] text-[11px]">
+                  <div>
+                    <span className="text-[#888888] mr-1">Kit:</span>
+                    {item.kitCode ? (
+                      <Link href={`/kits/${item.kitCode}`} className="font-mono font-bold text-black underline">
+                        {item.kitCode}
+                      </Link>
+                    ) : (
+                      <span className="text-[#888888]">Unassigned</span>
+                    )}
+                  </div>
+                  <span className="text-[#888888] font-mono text-[10px]">
+                    {new Date(item.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="p-8 text-center text-xs text-[#888888] bg-white border border-[#E5E5E5] rounded">
+              No products added to this batch yet.
+            </div>
+          )}
         </div>
       </div>
     </div>

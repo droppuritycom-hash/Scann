@@ -205,96 +205,98 @@ export default function InventoryPage() {
 
       {/* Desktop Table View (Section 33) */}
       <div className="hidden md:block bg-white border border-[#E5E5E5] rounded overflow-hidden">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
-              <th className="py-2.5 px-3 font-mono">Serial</th>
-              <th className="py-2.5 px-3">Product Name</th>
-              <th className="py-2.5 px-3 font-mono">Part Code</th>
-              <th className="py-2.5 px-3">Category</th>
-              <th className="py-2.5 px-3 font-mono">Batch</th>
-              <th className="py-2.5 px-3 font-mono">Kit</th>
-              <th className="py-2.5 px-3">Status</th>
-              <th className="py-2.5 px-3">Registered</th>
-              <th className="py-2.5 px-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E5E5E5]">
-            {loading ? (
-              <tr>
-                <td colSpan={9} className="py-8 text-center text-[#888888]">
-                  Loading inventory data...
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse min-w-[800px]">
+            <thead>
+              <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
+                <th className="py-2.5 px-3 font-mono">Serial</th>
+                <th className="py-2.5 px-3">Product Name</th>
+                <th className="py-2.5 px-3 font-mono">Part Code</th>
+                <th className="py-2.5 px-3">Category</th>
+                <th className="py-2.5 px-3 font-mono">Batch</th>
+                <th className="py-2.5 px-3 font-mono">Kit</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3">Registered</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
-            ) : items.length > 0 ? (
-              items.map((item) => (
-                <tr key={item.serialCode} className="hover:bg-neutral-50 transition">
-                  <td className="py-2.5 px-3 font-mono font-bold text-[#111111]">
-                    {item.serialCode}
-                  </td>
-                  <td className="py-2.5 px-3 font-medium text-[#111111]">
-                    {item.productName}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-[#666666]">
-                    {item.partCode}
-                  </td>
-                  <td className="py-2.5 px-3 text-[#666666]">
-                    {item.category || '—'}
-                  </td>
-                  <td className="py-2.5 px-3 font-mono">
-                    <Link
-                      href={`/batches/${item.batchCode}`}
-                      className="text-[#111111] hover:underline font-semibold"
-                    >
-                      {item.batchCode}
-                    </Link>
-                  </td>
-                  <td className="py-2.5 px-3 font-mono">
-                    {item.kitCode ? (
-                      <Link
-                        href={`/kits/${item.kitCode}`}
-                        className="text-black font-semibold hover:underline"
-                      >
-                        {item.kitCode}
-                      </Link>
-                    ) : (
-                      <span className="text-[#888888]">—</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        item.status === 'in_kit'
-                          ? 'bg-neutral-900 text-white'
-                          : 'bg-neutral-100 text-[#111111] border border-[#E5E5E5]'
-                      }`}
-                    >
-                      {item.status === 'in_kit' ? 'In Kit' : 'In Batch'}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <Link
-                      href={`/search?q=${item.serialCode}`}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-black hover:underline"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      View
-                    </Link>
+            </thead>
+            <tbody className="divide-y divide-[#E5E5E5]">
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-[#888888]">
+                    Loading inventory data...
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={9} className="py-8 text-center text-[#888888]">
-                  No inventory items found matching your filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              ) : items.length > 0 ? (
+                items.map((item) => (
+                  <tr key={item.serialCode} className="hover:bg-neutral-50 transition">
+                    <td className="py-2.5 px-3 font-mono font-bold text-[#111111]">
+                      {item.serialCode}
+                    </td>
+                    <td className="py-2.5 px-3 font-medium text-[#111111]">
+                      {item.productName}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[#666666]">
+                      {item.partCode}
+                    </td>
+                    <td className="py-2.5 px-3 text-[#666666]">
+                      {item.category || '—'}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono">
+                      <Link
+                        href={`/batches/${item.batchCode}`}
+                        className="text-[#111111] hover:underline font-semibold"
+                      >
+                        {item.batchCode}
+                      </Link>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono">
+                      {item.kitCode ? (
+                        <Link
+                          href={`/kits/${item.kitCode}`}
+                          className="text-black font-semibold hover:underline"
+                        >
+                          {item.kitCode}
+                        </Link>
+                      ) : (
+                        <span className="text-[#888888]">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          item.status === 'in_kit'
+                            ? 'bg-neutral-900 text-white'
+                            : 'bg-neutral-100 text-[#111111] border border-[#E5E5E5]'
+                        }`}
+                      >
+                        {item.status === 'in_kit' ? 'In Kit' : 'In Batch'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
+                      {new Date(item.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <Link
+                        href={`/search?q=${item.serialCode}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-black hover:underline"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-[#888888]">
+                    No inventory items found matching your filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Mobile Cards View (Section 33: On mobile convert the table into cards) */}

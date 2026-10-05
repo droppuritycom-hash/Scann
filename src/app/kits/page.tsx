@@ -88,80 +88,152 @@ export default function KitsPage() {
           </button>
         </form>
 
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="text-xs px-3 py-2 border border-[#E5E5E5] rounded bg-white text-[#111111] focus:outline-none focus:border-black"
-        >
-          <option value="">All Statuses</option>
-          <option value="open">Open</option>
-          <option value="closed">Closed</option>
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="flex-1 sm:flex-none text-xs px-3 py-2 border border-[#E5E5E5] rounded bg-white text-[#111111] focus:outline-none focus:border-black"
+          >
+            <option value="">All Statuses</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </select>
+
+          {(search || status) && (
+            <button
+              onClick={() => {
+                setSearch('');
+                setStatus('');
+              }}
+              className="px-3 py-2 border border-[#E5E5E5] rounded text-xs text-[#666666] hover:bg-neutral-100 transition shrink-0"
+              title="Clear filters"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Kits Table (Section 36) */}
-      <div className="bg-white border border-[#E5E5E5] rounded overflow-hidden">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
-              <th className="py-2.5 px-3 font-mono">Kit Code</th>
-              <th className="py-2.5 px-3">Items Assembled</th>
-              <th className="py-2.5 px-3">Status</th>
-              <th className="py-2.5 px-3">Created Date</th>
-              <th className="py-2.5 px-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E5E5E5]">
-            {loading ? (
-              <tr>
-                <td colSpan={5} className="py-8 text-center text-[#888888]">
-                  Loading kits...
-                </td>
+      {/* Desktop Kits Table (Hidden on mobile) */}
+      <div className="hidden md:block bg-white border border-[#E5E5E5] rounded overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse min-w-[600px]">
+            <thead>
+              <tr className="bg-neutral-50 border-b border-[#E5E5E5] text-[#666666] font-semibold">
+                <th className="py-2.5 px-3 font-mono">Kit Code</th>
+                <th className="py-2.5 px-3">Items Assembled</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3">Created Date</th>
+                <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
-            ) : kits.length > 0 ? (
-              kits.map((k) => (
-                <tr key={k.code} className="hover:bg-neutral-50 transition">
-                  <td className="py-2.5 px-3 font-mono font-black text-[#111111]">
-                    <Link href={`/kits/${k.code}`} className="hover:underline flex items-center gap-1.5">
-                      {k.code}
-                    </Link>
-                  </td>
-                  <td className="py-2.5 px-3 font-bold text-[#111111]">
-                    {k.itemCount || 0}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        k.status === 'open'
-                          ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
-                          : 'bg-neutral-900 text-white'
-                      }`}
-                    >
-                      {k.status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
-                    {new Date(k.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <Link
-                      href={`/kits/${k.code}`}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-black hover:underline"
-                    >
-                      View Kit Items →
-                    </Link>
+            </thead>
+            <tbody className="divide-y divide-[#E5E5E5]">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[#888888]">
+                    Loading kits...
                   </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="py-8 text-center text-[#888888]">
-                  No kits created yet. Scan or generate a kit QR to begin assembling.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              ) : kits.length > 0 ? (
+                kits.map((k) => (
+                  <tr key={k.code} className="hover:bg-neutral-50 transition">
+                    <td className="py-2.5 px-3 font-mono font-black text-[#111111]">
+                      <Link href={`/kits/${k.code}`} className="hover:underline flex items-center gap-1.5">
+                        {k.code}
+                      </Link>
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-[#111111]">
+                      {k.itemCount || 0}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          k.status === 'open'
+                            ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
+                            : 'bg-neutral-900 text-white'
+                        }`}
+                      >
+                        {k.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-[#888888] font-mono text-[11px]">
+                      {new Date(k.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <Link
+                        href={`/kits/${k.code}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-black hover:underline"
+                      >
+                        View Kit Items →
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[#888888]">
+                    No kits created yet. Scan or generate a kit QR to begin assembling.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Mobile Kits Cards View (Visible on mobile screens < md) */}
+      <div className="md:hidden space-y-2.5">
+        {loading ? (
+          <div className="p-8 text-center text-xs text-[#888888] bg-white border border-[#E5E5E5] rounded">
+            Loading kits...
+          </div>
+        ) : kits.length > 0 ? (
+          kits.map((k) => (
+            <div
+              key={k.code}
+              className="p-3.5 bg-white border border-[#E5E5E5] rounded space-y-2.5 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <Link
+                  href={`/kits/${k.code}`}
+                  className="font-mono font-black text-sm text-[#111111] hover:underline"
+                >
+                  {k.code}
+                </Link>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                    k.status === 'open'
+                      ? 'bg-neutral-100 text-black border border-[#E5E5E5]'
+                      : 'bg-neutral-900 text-white'
+                  }`}
+                >
+                  {k.status}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#F0F0F0]">
+                <span className="text-[#888888]">Items Assembled:</span>
+                <span className="font-bold text-[#111111]">{k.itemCount || 0} units</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#F0F0F0] text-[11px]">
+                <span className="text-[#888888] font-mono">
+                  {new Date(k.createdAt).toLocaleDateString()}
+                </span>
+                <Link
+                  href={`/kits/${k.code}`}
+                  className="px-3 py-1 bg-black text-white text-[11px] font-bold rounded hover:bg-neutral-800 transition"
+                >
+                  View Kit Items →
+                </Link>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="p-8 text-center text-xs text-[#888888] bg-white border border-[#E5E5E5] rounded">
+            No kits created yet. Scan or generate a kit QR to begin assembling.
+          </div>
+        )}
       </div>
     </div>
   );
