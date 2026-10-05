@@ -240,17 +240,113 @@ export default function QRGeneratorPage() {
     }
   };
 
-  // 3. Printable 50mm x 100mm Thermal Printer Label Template (2 QRs per Label)
-  const openPrintSheetWindow = (
+  // Download single image using Blob URL (compatible across all browsers)
+  const downloadDataUrl = (dataUrl: string, filename: string) => {
+    try {
+      if (!dataUrl) return;
+      const link = document.createElement('a');
+      if (dataUrl.startsWith('data:')) {
+        const parts = dataUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        return;
+      }
+      link.href = dataUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Download QR failed:', err);
+    }
+  };
+
+  // Download thermal label sheet as standalone HTML file
+  const downloadPrintableLabels = (
     items: Array<{ code: string; dataUrl: string; productName?: string }>,
     config: StickerFormatConfig,
     pagesCount: number,
     printOrientation: 'portrait' | 'landscape' = 'portrait',
     sizeMode: 'full' | 'standard' | 'compact' = 'full'
   ) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+    const htmlContent = buildThermalHtml(items, config, pagesCount, printOrientation, sizeMode);
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = `thermal-labels-${config.type}-${items[0]?.code}-to-${items[items.length - 1]?.code}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+  };
 
+  // 2b. Generate & Download Handler
+  const handleGenerateAndDownload = async () => {
+    setIsGenerating(true);
+    setErrorMessage(null);
+    setSuccessBanner(null);
+
+    try {
+      const res = await fetch('/api/qr/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: selectedFormat,
+          quantity: totalStickers,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || 'Failed to generate QR codes');
+        return;
+      }
+
+      setSuccessBanner(
+        `Generated and downloading ${data.count} ${selectedFormat.toUpperCase()} QR codes (${firstCode} → ${lastCode})!`
+      );
+
+      // 1. Download standalone printable HTML file (exact 50x100mm thermal sheets)
+      downloadPrintableLabels(data.items, currentConfig, numPages, orientation, qrSize);
+
+      // 2. Download all PNG images sequentially with 120ms interval
+      data.items.forEach((item: { code: string; dataUrl: string }, idx: number) => {
+        setTimeout(() => {
+          downloadDataUrl(item.dataUrl, `${item.code}.png`);
+        }, idx * 120);
+      });
+
+      // Refresh live sequence counter from DB
+      fetchLiveSequence();
+    } catch {
+      setErrorMessage('Network error while generating QR codes.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 3. Helper to generate full printable thermal label HTML document
+  const buildThermalHtml = (
+    items: Array<{ code: string; dataUrl: string; productName?: string }>,
+    config: StickerFormatConfig,
+    pagesCount: number,
+    printOrientation: 'portrait' | 'landscape' = 'portrait',
+    sizeMode: 'full' | 'standard' | 'compact' = 'full'
+  ) => {
     // Group items into pairs of 2 (bunch of two QRs per thermal page)
     const pagePairs: Array<Array<{ code: string; dataUrl: string; productName?: string }>> = [];
     for (let i = 0; i < items.length; i += 2) {
@@ -289,7 +385,7 @@ export default function QRGeneratorPage() {
     const currentSize = sizePresets[sizeMode] || sizePresets.full;
 
     const pagesHtml = pagePairs
-      .map((pair, pIdx) => {
+      .map((pair) => {
         const qr1 = pair[0];
         const qr2 = pair[1];
 
@@ -315,7 +411,7 @@ export default function QRGeneratorPage() {
       })
       .join('');
 
-    printWindow.document.write(`
+    return `
       <!DOCTYPE html>
       <html>
         <head>
@@ -324,7 +420,7 @@ export default function QRGeneratorPage() {
           <style>
             @page {
               size: ${isPortrait ? '50mm 100mm' : '100mm 50mm'};
-              margin: 0;
+              margin: 0mm;
             }
             * {
               box-sizing: border-box;
@@ -465,16 +561,47 @@ export default function QRGeneratorPage() {
               Thermal Print: ${isPortrait ? '50mm × 100mm' : '100mm × 50mm'} (2 QRs/Label) · ${items.length} Stickers (${pagePairs.length} Labels)
             </span>
             <button onclick="window.print()">🖨️ Print Now</button>
+            <button onclick="downloadSelf()" style="background:#333;color:#fff;">⬇️ Download File (.html)</button>
           </div>
           ${pagesHtml}
           <script>
+            function downloadSelf() {
+              var blob = new Blob([document.documentElement.outerHTML], { type: 'text/html;charset=utf-8' });
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              a.download = 'thermal-labels-${config.type}.html';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+            }
             window.onload = function() {
               window.print();
             };
           </script>
         </body>
       </html>
-    `);
+    `;
+  };
+
+  // 4. Open Printable 50mm x 100mm Thermal Printer Label Window
+  const openPrintSheetWindow = (
+    items: Array<{ code: string; dataUrl: string; productName?: string }>,
+    config: StickerFormatConfig,
+    pagesCount: number,
+    printOrientation: 'portrait' | 'landscape' = 'portrait',
+    sizeMode: 'full' | 'standard' | 'compact' = 'full'
+  ) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      // Fallback: If popup is blocked by browser, trigger download directly
+      downloadPrintableLabels(items, config, pagesCount, printOrientation, sizeMode);
+      return;
+    }
+
+    const htmlContent = buildThermalHtml(items, config, pagesCount, printOrientation, sizeMode);
+    printWindow.document.write(htmlContent);
     printWindow.document.close();
   };
 
@@ -831,24 +958,42 @@ export default function QRGeneratorPage() {
             </span>
           </div>
 
-          {/* Action Button: Generate & Print */}
-          <button
-            type="button"
-            disabled={isGenerating || loadingSequence}
-            onClick={handleGenerateAndPrint}
-            className="w-full py-3.5 bg-black text-white text-xs font-bold rounded-xl hover:bg-neutral-800 disabled:opacity-50 transition flex items-center justify-center gap-2 shadow-sm"
-          >
-            {isGenerating ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <Printer className="w-4 h-4" />
-            )}
-            <span>
-              {isGenerating
-                ? 'Allocating in Database...'
-                : `Generate & Print Thermal Labels (${numPages} Label${numPages > 1 ? 's' : ''} · ${totalStickers} QRs)`}
-            </span>
-          </button>
+          {/* Action Buttons: Generate & Print and Generate & Download */}
+          <div className="space-y-2 pt-1">
+            <button
+              type="button"
+              disabled={isGenerating || loadingSequence}
+              onClick={handleGenerateAndPrint}
+              className="w-full py-3.5 bg-black text-white text-xs font-bold rounded-xl hover:bg-neutral-800 disabled:opacity-50 transition flex items-center justify-center gap-2 shadow-sm"
+            >
+              {isGenerating ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4" />
+              )}
+              <span>
+                {isGenerating
+                  ? 'Allocating in Database...'
+                  : `Generate & Print Thermal Labels (${numPages} Label${numPages > 1 ? 's' : ''} · ${totalStickers} QRs)`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isGenerating || loadingSequence}
+              onClick={handleGenerateAndDownload}
+              className="w-full py-2.5 bg-white text-black border-2 border-black text-xs font-bold rounded-xl hover:bg-neutral-50 disabled:opacity-50 transition flex items-center justify-center gap-2 shadow-sm"
+            >
+              {isGenerating ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 text-black" />
+              )}
+              <span>
+                Generate & Download QR Labels (.html & PNGs)
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* ----------------------------------------------------------------- */}
@@ -1019,8 +1164,23 @@ export default function QRGeneratorPage() {
                         </div>
                       )}
                     </div>
-                    <div className="font-mono font-black text-xs text-[#111111] leading-tight">
-                      {pair[0]?.code}
+                    <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                      <span className="font-mono font-black text-xs text-[#111111] leading-tight">
+                        {pair[0]?.code}
+                      </span>
+                      {pair[0]?.dataUrl && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadDataUrl(pair[0].dataUrl, `${pair[0].code}.png`);
+                          }}
+                          title={`Download ${pair[0].code} PNG`}
+                          className="p-0.5 hover:bg-neutral-100 rounded text-neutral-500 hover:text-black transition"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                     <div className="text-[8px] text-[#777777] font-bold uppercase tracking-wider leading-tight">
                       50×50mm {selectedFormat}
@@ -1051,8 +1211,23 @@ export default function QRGeneratorPage() {
                         </div>
                       )}
                     </div>
-                    <div className="font-mono font-black text-xs text-[#111111] leading-tight">
-                      {pair[1]?.code}
+                    <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                      <span className="font-mono font-black text-xs text-[#111111] leading-tight">
+                        {pair[1]?.code}
+                      </span>
+                      {pair[1]?.dataUrl && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadDataUrl(pair[1].dataUrl, `${pair[1].code}.png`);
+                          }}
+                          title={`Download ${pair[1].code} PNG`}
+                          className="p-0.5 hover:bg-neutral-100 rounded text-neutral-500 hover:text-black transition"
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                     <div className="text-[8px] text-[#777777] font-bold uppercase tracking-wider leading-tight">
                       50×50mm {selectedFormat}

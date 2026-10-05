@@ -92,7 +92,8 @@ export type AuditAction =
   | 'BATCH_CLOSED'
   | 'KIT_CLOSED'
   | 'PRODUCT_CREATED'
-  | 'PRODUCT_UPDATED';
+  | 'PRODUCT_UPDATED'
+  | 'COUNTER_RESET';
 
 export interface AuditLog {
   _id?: ObjectId | string;
