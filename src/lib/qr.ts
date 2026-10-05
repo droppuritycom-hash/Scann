@@ -11,9 +11,9 @@ export const QR_CONFIG = {
 };
 
 export const QR_RESOLUTIONS: Record<EntityType, number> = {
-  serial: 300,
-  batch: 400,
-  kit: 400,
+  serial: 500,
+  batch: 500,
+  kit: 500,
 };
 
 /**

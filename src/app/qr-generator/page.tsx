@@ -69,6 +69,9 @@ export default function QRGeneratorPage() {
   // Label Roll Orientation
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
 
+  // QR Code Printable Sizing (default: 'full' = 42.5mm max space in 50x50mm sticker)
+  const [qrSize, setQrSize] = useState<'full' | 'standard' | 'compact'>('full');
+
   // Live Sequence Range from DB
   const [nextIndex, setNextIndex] = useState<number>(0);
   const [firstCode, setFirstCode] = useState<string>('A00001');
@@ -226,7 +229,7 @@ export default function QRGeneratorPage() {
       );
 
       // Open print window for 50mm x 100mm thermal printer label pages
-      openPrintSheetWindow(data.items, currentConfig, numPages, orientation);
+      openPrintSheetWindow(data.items, currentConfig, numPages, orientation, qrSize);
 
       // Refresh live sequence counter from DB
       fetchLiveSequence();
@@ -242,7 +245,8 @@ export default function QRGeneratorPage() {
     items: Array<{ code: string; dataUrl: string; productName?: string }>,
     config: StickerFormatConfig,
     pagesCount: number,
-    printOrientation: 'portrait' | 'landscape' = 'portrait'
+    printOrientation: 'portrait' | 'landscape' = 'portrait',
+    sizeMode: 'full' | 'standard' | 'compact' = 'full'
   ) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -254,6 +258,35 @@ export default function QRGeneratorPage() {
     }
 
     const isPortrait = printOrientation === 'portrait';
+
+    const sizePresets = {
+      full: {
+        img: '42.5mm',
+        padding: '0.8mm 1mm 0.5mm 1mm',
+        codeFont: '8.5pt',
+        codeMargin: '0.4mm',
+        subFont: '5pt',
+        subMargin: '0.2mm',
+      },
+      standard: {
+        img: '36mm',
+        padding: '2mm 1.5mm 1mm 1.5mm',
+        codeFont: '9.5pt',
+        codeMargin: '1mm',
+        subFont: '5.5pt',
+        subMargin: '0.4mm',
+      },
+      compact: {
+        img: '32mm',
+        padding: '2.5mm 2mm 1.5mm 2mm',
+        codeFont: '10.5pt',
+        codeMargin: '1.2mm',
+        subFont: '6pt',
+        subMargin: '0.5mm',
+      },
+    };
+
+    const currentSize = sizePresets[sizeMode] || sizePresets.full;
 
     const pagesHtml = pagePairs
       .map((pair, pIdx) => {
@@ -323,22 +356,27 @@ export default function QRGeneratorPage() {
             .qr-sticker {
               width: 50mm;
               height: 50mm;
+              max-width: 50mm;
               max-height: 50mm;
-              flex: 1;
+              flex: 0 0 50mm;
+              box-sizing: border-box;
               display: flex;
               flex-direction: column;
               align-items: center;
-              justify-content: center;
-              padding: 2mm 1.5mm;
+              justify-content: flex-start;
+              padding: ${currentSize.padding};
               text-align: center;
               position: relative;
+              overflow: hidden;
             }
             .qr-divider {
               ${isPortrait ? 'width: 100%; height: 0; border-top: 1px dashed #666;' : 'height: 100%; width: 0; border-left: 1px dashed #666;'}
             }
             .qr-img {
-              width: 32mm;
-              height: 32mm;
+              width: ${currentSize.img};
+              height: ${currentSize.img};
+              max-width: ${currentSize.img};
+              max-height: ${currentSize.img};
               display: block;
               margin: 0 auto;
               image-rendering: -webkit-optimize-contrast;
@@ -346,29 +384,32 @@ export default function QRGeneratorPage() {
             }
             .qr-code {
               font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-              font-size: 11pt;
+              font-size: ${currentSize.codeFont};
               font-weight: 900;
               letter-spacing: 0.5px;
-              line-height: 1.1;
-              margin-top: 1.5mm;
+              line-height: 1.05;
+              margin-top: ${currentSize.codeMargin};
               color: #000;
             }
             .qr-sub {
-              font-size: 6.5pt;
-              font-weight: 700;
+              font-size: ${currentSize.subFont};
+              font-weight: 800;
               text-transform: uppercase;
               letter-spacing: 0.5px;
-              color: #333;
-              margin-top: 0.5mm;
+              color: #111;
+              line-height: 1.0;
+              margin-top: ${currentSize.subMargin};
             }
             .qr-prod {
-              font-size: 5.5pt;
-              color: #555;
-              max-width: 44mm;
+              font-size: 4.5pt;
+              color: #333;
+              font-weight: 600;
+              max-width: 46mm;
               overflow: hidden;
               white-space: nowrap;
               text-overflow: ellipsis;
-              margin-top: 0.5mm;
+              line-height: 1.0;
+              margin-top: 0.2mm;
             }
             @media screen {
               body {
@@ -667,6 +708,62 @@ export default function QRGeneratorPage() {
             </div>
           </div>
 
+          {/* Section: QR Code Size in 50×50mm Sticker */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-[#111111]">
+                QR Code Size (50mm × 50mm Area)
+              </label>
+              <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                {qrSize === 'full' ? 'Full Size (42.5mm)' : qrSize === 'standard' ? 'Standard (36mm)' : 'Compact (32mm)'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setQrSize('full')}
+                className={`p-2 rounded-lg border text-left transition ${
+                  qrSize === 'full'
+                    ? 'bg-black text-white border-black font-bold shadow-sm'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
+                }`}
+              >
+                <div className="font-black text-[11px]">Full (42.5mm)</div>
+                <div className={`text-[9px] mt-0.5 ${qrSize === 'full' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                  Max Space · Fits 50mm
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setQrSize('standard')}
+                className={`p-2 rounded-lg border text-left transition ${
+                  qrSize === 'standard'
+                    ? 'bg-black text-white border-black font-bold shadow-sm'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
+                }`}
+              >
+                <div className="font-black text-[11px]">Standard (36mm)</div>
+                <div className={`text-[9px] mt-0.5 ${qrSize === 'standard' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                  Balanced margins
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setQrSize('compact')}
+                className={`p-2 rounded-lg border text-left transition ${
+                  qrSize === 'compact'
+                    ? 'bg-black text-white border-black font-bold shadow-sm'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
+                }`}
+              >
+                <div className="font-black text-[11px]">Compact (32mm)</div>
+                <div className={`text-[9px] mt-0.5 ${qrSize === 'compact' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                  Extra quiet zone
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Section: Number of Thermal Labels (50mm × 100mm) */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
@@ -906,8 +1003,10 @@ export default function QRGeneratorPage() {
                   </div>
 
                   {/* QR 1 (Top Half - 50mm x 50mm) */}
-                  <div className="w-full py-2 flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 flex items-center justify-center mb-1">
+                  <div className="w-full py-1.5 flex flex-col items-center justify-center">
+                    <div className={`flex items-center justify-center mb-0.5 transition-all ${
+                      qrSize === 'full' ? 'w-28 h-28' : qrSize === 'standard' ? 'w-24 h-24' : 'w-20 h-20'
+                    }`}>
                       {pair[0]?.dataUrl ? (
                         <img
                           src={pair[0].dataUrl}
@@ -920,10 +1019,10 @@ export default function QRGeneratorPage() {
                         </div>
                       )}
                     </div>
-                    <div className="font-mono font-black text-xs text-[#111111]">
+                    <div className="font-mono font-black text-xs text-[#111111] leading-tight">
                       {pair[0]?.code}
                     </div>
-                    <div className="text-[9px] text-[#777777] font-semibold uppercase">
+                    <div className="text-[8px] text-[#777777] font-bold uppercase tracking-wider leading-tight">
                       50×50mm {selectedFormat}
                     </div>
                   </div>
@@ -936,8 +1035,10 @@ export default function QRGeneratorPage() {
                   </div>
 
                   {/* QR 2 (Bottom Half - 50mm x 50mm) */}
-                  <div className="w-full py-2 flex flex-col items-center justify-center">
-                    <div className="w-20 h-20 flex items-center justify-center mb-1">
+                  <div className="w-full py-1.5 flex flex-col items-center justify-center">
+                    <div className={`flex items-center justify-center mb-0.5 transition-all ${
+                      qrSize === 'full' ? 'w-28 h-28' : qrSize === 'standard' ? 'w-24 h-24' : 'w-20 h-20'
+                    }`}>
                       {pair[1]?.dataUrl ? (
                         <img
                           src={pair[1].dataUrl}
@@ -950,10 +1051,10 @@ export default function QRGeneratorPage() {
                         </div>
                       )}
                     </div>
-                    <div className="font-mono font-black text-xs text-[#111111]">
+                    <div className="font-mono font-black text-xs text-[#111111] leading-tight">
                       {pair[1]?.code}
                     </div>
-                    <div className="text-[9px] text-[#777777] font-semibold uppercase">
+                    <div className="text-[8px] text-[#777777] font-bold uppercase tracking-wider leading-tight">
                       50×50mm {selectedFormat}
                     </div>
                   </div>
