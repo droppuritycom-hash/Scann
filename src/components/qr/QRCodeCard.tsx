@@ -14,6 +14,8 @@ interface QRCodeCardProps {
   showActions?: boolean;
 }
 
+import { dataUrlToUint8Array, triggerBlobDownload } from '@/lib/zip';
+
 export default function QRCodeCard({
   code,
   type,
@@ -33,31 +35,9 @@ export default function QRCodeCard({
   const handleDownload = () => {
     try {
       if (!dataUrl) return;
-      const link = document.createElement('a');
-      if (dataUrl.startsWith('data:')) {
-        const parts = dataUrl.split(',');
-        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
-        const bstr = atob(parts[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) {
-          u8arr[n] = bstr.charCodeAt(n);
-        }
-        const blob = new Blob([u8arr], { type: mime });
-        const blobUrl = URL.createObjectURL(blob);
-        link.href = blobUrl;
-        link.download = `${code}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-        return;
-      }
-      link.href = dataUrl;
-      link.download = `${code}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const u8arr = dataUrlToUint8Array(dataUrl);
+      const blob = new Blob([u8arr as BlobPart], { type: 'image/png' });
+      triggerBlobDownload(blob, `${code}.png`);
     } catch (err) {
       console.error('Download QR failed:', err);
     }

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { EntityType, Product } from '@/types';
 import { formatCode } from '@/lib/sequence';
+import { createZipBlob, dataUrlToUint8Array, triggerBlobDownload } from '@/lib/zip';
 
 interface StickerFormatConfig {
   type: EntityType;
@@ -244,31 +245,9 @@ export default function QRGeneratorPage() {
   const downloadDataUrl = (dataUrl: string, filename: string) => {
     try {
       if (!dataUrl) return;
-      const link = document.createElement('a');
-      if (dataUrl.startsWith('data:')) {
-        const parts = dataUrl.split(',');
-        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
-        const bstr = atob(parts[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) {
-          u8arr[n] = bstr.charCodeAt(n);
-        }
-        const blob = new Blob([u8arr], { type: mime });
-        const blobUrl = URL.createObjectURL(blob);
-        link.href = blobUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-        return;
-      }
-      link.href = dataUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const u8arr = dataUrlToUint8Array(dataUrl);
+      const blob = new Blob([u8arr as BlobPart], { type: 'image/png' });
+      triggerBlobDownload(blob, filename);
     } catch (err) {
       console.error('Download QR failed:', err);
     }
@@ -284,17 +263,13 @@ export default function QRGeneratorPage() {
   ) => {
     const htmlContent = buildThermalHtml(items, config, pagesCount, printOrientation, sizeMode);
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-    const blobUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = `thermal-labels-${config.type}-${items[0]?.code}-to-${items[items.length - 1]?.code}.html`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+    triggerBlobDownload(
+      blob,
+      `thermal-labels-${config.type}-${items[0]?.code}-to-${items[items.length - 1]?.code}.html`
+    );
   };
 
-  // 2b. Generate & Download Handler
+  // 2b. Generate & Download All QRs as a single ZIP archive containing all PNGs + Printable HTML
   const handleGenerateAndDownload = async () => {
     setIsGenerating(true);
     setErrorMessage(null);
@@ -316,19 +291,54 @@ export default function QRGeneratorPage() {
         return;
       }
 
-      setSuccessBanner(
-        `Generated and downloading ${data.count} ${selectedFormat.toUpperCase()} QR codes (${firstCode} → ${lastCode})!`
-      );
+      // Package all generated QR codes into a single ZIP archive
+      const zipFiles: Array<{ name: string; data: Uint8Array | string }> = [];
 
-      // 1. Download standalone printable HTML file (exact 50x100mm thermal sheets)
-      downloadPrintableLabels(data.items, currentConfig, numPages, orientation, qrSize);
-
-      // 2. Download all PNG images sequentially with 120ms interval
-      data.items.forEach((item: { code: string; dataUrl: string }, idx: number) => {
-        setTimeout(() => {
-          downloadDataUrl(item.dataUrl, `${item.code}.png`);
-        }, idx * 120);
+      // 1. Add each individual high-res PNG image
+      data.items.forEach((item: { code: string; dataUrl: string }) => {
+        try {
+          const u8 = dataUrlToUint8Array(item.dataUrl);
+          zipFiles.push({
+            name: `${item.code}.png`,
+            data: u8,
+          });
+        } catch (e) {
+          console.error(`Failed to process ${item.code} image:`, e);
+        }
       });
+
+      // 2. Add complete 50mm x 100mm printable thermal labels HTML document
+      const printableHtml = buildThermalHtml(data.items, currentConfig, numPages, orientation, qrSize);
+      zipFiles.push({
+        name: `Printable_Thermal_Labels_${selectedFormat.toUpperCase()}_50x100mm.html`,
+        data: printableHtml,
+      });
+
+      // 3. Add summary README.txt with batch details
+      const summaryText = `QR Code Generation Batch Summary
+=============================================
+Type:        ${currentConfig.title}
+Total QRs:   ${data.items.length} (${numPages} labels · 2 QRs per 50x100mm label)
+Sequence:    ${data.items[0]?.code} -> ${data.items[data.items.length - 1]?.code}
+Generated:   ${new Date().toISOString()}
+Orientation: ${orientation}
+QR Size:     ${qrSize === 'full' ? '42.5mm (Full Size)' : qrSize === 'standard' ? '36mm' : '32mm'}
+=============================================
+Includes individual PNG images for each QR code and a standalone printable thermal sheet.
+`;
+      zipFiles.push({
+        name: 'README.txt',
+        data: summaryText,
+      });
+
+      // 4. Create ZIP and trigger single clean browser download
+      const zipBlob = createZipBlob(zipFiles);
+      const zipFilename = `QR_${selectedFormat.toUpperCase()}_${data.items[0]?.code}_to_${data.items[data.items.length - 1]?.code}.zip`;
+      triggerBlobDownload(zipBlob, zipFilename);
+
+      setSuccessBanner(
+        `Generated & downloaded ${data.count} ${selectedFormat.toUpperCase()} QR codes in ZIP archive (${data.items[0]?.code} → ${data.items[data.items.length - 1]?.code})!`
+      );
 
       // Refresh live sequence counter from DB
       fetchLiveSequence();
@@ -990,7 +1000,7 @@ export default function QRGeneratorPage() {
                 <Download className="w-4 h-4 text-black" />
               )}
               <span>
-                Generate & Download QR Labels (.html & PNGs)
+                Download QR Codes ZIP ({numPages * 2} PNGs + Sheet)
               </span>
             </button>
           </div>
