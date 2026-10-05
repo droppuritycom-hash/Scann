@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Layers,
@@ -11,11 +11,9 @@ import {
   Search,
   Check,
   X,
-  RefreshCw,
   Box,
   Plus,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 import BarcodeScanner from '@/components/scanner/BarcodeScanner';
 import { Batch, Kit, InventoryItem, Product } from '@/types';
@@ -23,6 +21,16 @@ import { Batch, Kit, InventoryItem, Product } from '@/types';
 type ScanMode = 'choose' | 'batch' | 'kit';
 type BatchStep = 'scan_batch' | 'scanning' | 'finished';
 type KitStep = 'scan_kit' | 'scanning' | 'finished';
+
+interface PendingConfirmSave {
+  mode: 'batch' | 'kit';
+  serial: string;
+  productName: string;
+  partCode?: string;
+  batchCode?: string;
+  kitCode?: string;
+  productId?: string;
+}
 
 export default function ScanPage() {
   const router = useRouter();
@@ -52,6 +60,11 @@ export default function ScanPage() {
   const [productSearch, setProductSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [recentProducts, setRecentProducts] = useState<Product[]>([]);
+
+  // ----------------------------------------------------
+  // User Save Confirmation State ("Are you sure to save?")
+  // ----------------------------------------------------
+  const [pendingConfirmSave, setPendingConfirmSave] = useState<PendingConfirmSave | null>(null);
 
   // ----------------------------------------------------
   // Transient Feedback & Notifications
@@ -204,7 +217,7 @@ export default function ScanPage() {
     });
   };
 
-  // 3. Continuous Multi-Quantity Serial Scanning into Batch
+  // 3. Scan Serial QR for Batch (Verifies code, then prompts user "Are you sure to save?")
   const handleContinuousSerialScan = async (serialCode: string) => {
     const cleaned = serialCode.trim();
     if (!cleaned || !currentBatch) return;
@@ -238,14 +251,14 @@ export default function ScanPage() {
     setErrorMessage(null);
 
     try {
+      // Pre-verify with server: check if already registered in inventory
       const res = await fetch('/api/scan/product', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'add',
+          action: 'verify',
           serialCode: cleaned,
           batchCode: currentBatch.code,
-          productId: activeBatchProduct._id?.toString() || activeBatchProduct.partCode,
         }),
       });
 
@@ -267,21 +280,21 @@ export default function ScanPage() {
       }
 
       if (!res.ok) {
-        setErrorMessage(data.error || 'Failed to add serial to batch');
+        setErrorMessage(data.error || 'Invalid serial code format');
         return;
       }
 
-      // SUCCESS: Add item, update count, show non-blocking floating pill
-      const newItem = data.item;
-      setBatchProducts((prev) => [newItem, ...prev]);
-      setCurrentBatch((prev) => (prev ? { ...prev, productCount: prev.productCount + 1 } : null));
-
-      setFloatingToast({
+      // Valid & Unregistered Serial! Prompt user for confirmation before saving:
+      setPendingConfirmSave({
+        mode: 'batch',
         serial: cleaned,
         productName: activeBatchProduct.name,
+        partCode: activeBatchProduct.partCode,
+        batchCode: currentBatch.code,
+        productId: activeBatchProduct._id?.toString() || activeBatchProduct.partCode,
       });
     } catch {
-      setErrorMessage('Failed to save serial. Please check your network.');
+      setErrorMessage('Failed to verify serial. Please check your connection.');
     } finally {
       setIsProcessing(false);
     }
@@ -350,11 +363,12 @@ export default function ScanPage() {
     setErrorMessage(null);
 
     try {
+      // Pre-verify with server: check if item exists and kit assignment status
       const res = await fetch('/api/kit/add-item', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'add',
+          action: 'verify',
           kitCode: currentKit.code,
           serialCode: cleaned,
         }),
@@ -366,31 +380,155 @@ export default function ScanPage() {
         setDuplicateAlert({
           title: '⚠ Already Assigned To Kit',
           serial: cleaned,
-          productName: data.item?.productName,
-          batchCode: data.item?.batchCode,
-          kitCode: data.item?.kitCode,
-          message: data.error || 'This product is already assigned to a kit.',
+          productName: data.productName,
+          batchCode: data.currentBatch,
+          kitCode: data.currentKit,
+          message: `This product is already assigned to ${data.currentKit || 'a kit'}.`,
         });
         return;
       }
 
       if (!res.ok) {
-        setErrorMessage(data.error || 'Failed to add product to kit');
+        setErrorMessage(data.error || 'Product cannot be added to kit');
         return;
       }
 
-      setKitProducts((prev) => [data.item, ...prev]);
-      setCurrentKit((prev) => (prev ? { ...prev, itemCount: prev.itemCount + 1 } : null));
-
-      setFloatingToast({
+      // Valid serial! Prompt user for confirmation before saving:
+      setPendingConfirmSave({
+        mode: 'kit',
         serial: cleaned,
         productName: data.item?.productName || 'Product',
+        batchCode: data.item?.batchCode,
+        kitCode: currentKit.code,
       });
     } catch {
-      setErrorMessage('Failed to add product to kit.');
+      setErrorMessage('Failed to verify item for kit.');
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // ----------------------------------------------------
+  // CONFIRMATION DECISION HANDLERS: YES / NO
+  // ----------------------------------------------------
+
+  // USER CLICKS YES: SAVE TO DATABASE
+  const handleConfirmSaveYes = async () => {
+    if (!pendingConfirmSave) return;
+    setIsProcessing(true);
+    setErrorMessage(null);
+
+    try {
+      if (pendingConfirmSave.mode === 'batch') {
+        const res = await fetch('/api/scan/product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'add',
+            serialCode: pendingConfirmSave.serial,
+            batchCode: pendingConfirmSave.batchCode,
+            productId: pendingConfirmSave.productId,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (res.status === 409) {
+          setDuplicateAlert({
+            title: '⚠ Already Registered',
+            serial: pendingConfirmSave.serial,
+            productName: data.item?.productName || pendingConfirmSave.productName,
+            batchCode: data.item?.batchCode,
+            kitCode: data.item?.kitCode,
+            status: data.item?.status,
+            createdAt: data.item?.createdAt,
+            message: data.error || 'This QR has already been registered.',
+          });
+          setPendingConfirmSave(null);
+          return;
+        }
+
+        if (!res.ok) {
+          setErrorMessage(data.error || 'Failed to save product to batch');
+          return;
+        }
+
+        // Successfully saved
+        const newItem = data.item;
+        setBatchProducts((prev) => [newItem, ...prev]);
+        setCurrentBatch((prev) => (prev ? { ...prev, productCount: prev.productCount + 1 } : null));
+
+        setFloatingToast({
+          serial: pendingConfirmSave.serial,
+          productName: pendingConfirmSave.productName,
+        });
+
+        setSuccessBanner({
+          title: '✓ Product Saved to Batch',
+          subtitle: `${pendingConfirmSave.serial} — ${pendingConfirmSave.productName} added to ${pendingConfirmSave.batchCode}`,
+        });
+      } else if (pendingConfirmSave.mode === 'kit') {
+        const res = await fetch('/api/kit/add-item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'add',
+            kitCode: pendingConfirmSave.kitCode,
+            serialCode: pendingConfirmSave.serial,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (res.status === 409) {
+          setDuplicateAlert({
+            title: '⚠ Already Assigned To Kit',
+            serial: pendingConfirmSave.serial,
+            kitCode: data.item?.kitCode,
+            message: data.error,
+          });
+          setPendingConfirmSave(null);
+          return;
+        }
+
+        if (!res.ok) {
+          setErrorMessage(data.error || 'Failed to save product to kit');
+          return;
+        }
+
+        setKitProducts((prev) => [data.item, ...prev]);
+        setCurrentKit((prev) => (prev ? { ...prev, itemCount: prev.itemCount + 1 } : null));
+
+        setFloatingToast({
+          serial: pendingConfirmSave.serial,
+          productName: pendingConfirmSave.productName,
+        });
+
+        setSuccessBanner({
+          title: '✓ Product Saved to Kit',
+          subtitle: `${pendingConfirmSave.serial} — Added to ${pendingConfirmSave.kitCode}`,
+        });
+      }
+
+      setPendingConfirmSave(null);
+    } catch {
+      setErrorMessage('Failed to save. Please check your connection.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // USER CLICKS NO: DO NOT SAVE
+  const handleConfirmSaveNo = () => {
+    if (!pendingConfirmSave) return;
+    const cancelledSerial = pendingConfirmSave.serial;
+    setPendingConfirmSave(null);
+    setErrorMessage(null);
+
+    setSuccessBanner({
+      title: '✕ Cancelled (Not Saved)',
+      subtitle: `Serial ${cancelledSerial} was not saved. Scanner is ready for next code.`,
+    });
   };
 
   const resetAll = () => {
@@ -400,6 +538,7 @@ export default function ScanPage() {
     setBatchProducts([]);
     setActiveBatchProduct(null);
     setIsProductModalOpen(false);
+    setPendingConfirmSave(null);
 
     setKitStep('scan_kit');
     setCurrentKit(null);
@@ -571,7 +710,7 @@ export default function ScanPage() {
               <div>
                 <div className="text-lg font-black text-[#111111] tracking-wide">BATCH</div>
                 <div className="text-xs text-[#666666] mt-0.5">
-                  Scan batch QR (BAT-*), select product, and scan multiple serials continuously into the batch
+                  Scan batch QR (BAT-*), select product, confirm and add multiple serials into the batch
                 </div>
               </div>
             </button>
@@ -591,7 +730,7 @@ export default function ScanPage() {
               <div>
                 <div className="text-lg font-black text-[#111111] tracking-wide">KIT</div>
                 <div className="text-xs text-[#666666] mt-0.5">
-                  Scan kit QR (KIT-*) and continuously add registered serialized products into a kit
+                  Scan kit QR (KIT-*) and confirm adding registered serialized products into a kit
                 </div>
               </div>
             </button>
@@ -681,7 +820,7 @@ export default function ScanPage() {
           <div className="relative">
             <BarcodeScanner
               onScan={batchStep === 'scan_batch' ? handleScanBatchQR : handleContinuousSerialScan}
-              isProcessing={isProcessing || isProductModalOpen}
+              isProcessing={isProcessing || isProductModalOpen || Boolean(pendingConfirmSave)}
               expectedType={batchStep === 'scan_batch' ? 'batch' : 'serial'}
               placeholderText={
                 batchStep === 'scan_batch'
@@ -692,12 +831,12 @@ export default function ScanPage() {
               }
             />
 
-            {/* Non-blocking floating toast over camera on successful multi-scan */}
+            {/* Non-blocking floating toast over camera */}
             {floatingToast && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black text-white px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 shadow-lg animate-fadeIn z-20 pointer-events-none">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="font-mono">{floatingToast.serial}</span>
-                <span className="text-neutral-300">Added!</span>
+                <span className="text-neutral-300">Saved!</span>
               </div>
             )}
           </div>
@@ -917,7 +1056,90 @@ export default function ScanPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 4. FINISHED BATCH SUMMARY VIEW                                     */}
+      {/* 4. CONFIRMATION MODAL: "ARE YOU SURE YOU WANT TO SAVE?"            */}
+      {/* ------------------------------------------------------------------ */}
+      {pendingConfirmSave && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-xl border-2 border-black p-5 space-y-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center gap-3 border-b border-[#E5E5E5] pb-3">
+              <div className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#111111]">
+                  Are you sure you want to save?
+                </h3>
+                <p className="text-xs text-[#666666]">
+                  {pendingConfirmSave.mode === 'batch'
+                    ? 'Confirm adding this serial to the active batch'
+                    : 'Confirm adding this serial to the active kit'}
+                </p>
+              </div>
+            </div>
+
+            {/* Scanned Details Card */}
+            <div className="p-3.5 bg-neutral-50 border border-[#E5E5E5] rounded-lg text-xs space-y-2">
+              <div className="flex justify-between items-center py-1 border-b border-[#E5E5E5]">
+                <span className="text-[#666666] font-medium">Scanned Serial:</span>
+                <span className="font-mono font-black text-base text-[#111111] bg-white px-2 py-0.5 border border-[#E5E5E5] rounded">
+                  {pendingConfirmSave.serial}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="text-[#666666] font-medium">Item / Product:</span>
+                <span className="font-bold text-[#111111] text-right">
+                  {pendingConfirmSave.productName}
+                </span>
+              </div>
+              {pendingConfirmSave.partCode && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="text-[#666666] font-medium">Part Code:</span>
+                  <span className="font-mono text-[#555555]">
+                    {pendingConfirmSave.partCode}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-1 border-t border-[#E5E5E5]">
+                <span className="text-[#666666] font-medium">
+                  {pendingConfirmSave.mode === 'batch' ? 'Target Batch:' : 'Target Kit:'}
+                </span>
+                <span className="font-mono font-bold text-[#111111]">
+                  {pendingConfirmSave.mode === 'batch'
+                    ? pendingConfirmSave.batchCode
+                    : pendingConfirmSave.kitCode}
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons: [No, Don't Save] vs [Yes, Save] */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleConfirmSaveNo}
+                disabled={isProcessing}
+                className="py-3 px-4 bg-white text-[#111111] border-2 border-[#111111] font-bold text-xs rounded-lg hover:bg-neutral-100 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+                <span>No, Don&apos;t Save</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmSaveYes}
+                disabled={isProcessing}
+                className="py-3 px-4 bg-black text-white font-bold text-xs rounded-lg hover:bg-neutral-800 transition flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
+              >
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span>{isProcessing ? 'Saving...' : 'Yes, Save'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* 5. FINISHED BATCH SUMMARY VIEW                                     */}
       {/* ------------------------------------------------------------------ */}
       {mode === 'batch' && batchStep === 'finished' && currentBatch && (
         <div className="p-6 bg-white border border-[#E5E5E5] rounded text-center space-y-4">
@@ -972,7 +1194,7 @@ export default function ScanPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 5. KIT SCANNING FLOW (Continuous Scanner Stream)                   */}
+      {/* 6. KIT SCANNING FLOW (Continuous Scanner Stream)                   */}
       {/* ------------------------------------------------------------------ */}
       {mode === 'kit' && kitStep !== 'finished' && (
         <div className="space-y-4">
@@ -1002,7 +1224,7 @@ export default function ScanPage() {
           <div className="relative">
             <BarcodeScanner
               onScan={kitStep === 'scan_kit' ? handleScanKitQR : handleScanProductForKit}
-              isProcessing={isProcessing}
+              isProcessing={isProcessing || Boolean(pendingConfirmSave)}
               expectedType={kitStep === 'scan_kit' ? 'kit' : 'serial'}
               placeholderText={
                 kitStep === 'scan_kit'
@@ -1016,7 +1238,7 @@ export default function ScanPage() {
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black text-white px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 shadow-lg animate-fadeIn z-20 pointer-events-none">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="font-mono">{floatingToast.serial}</span>
-                <span className="text-neutral-300">Added to Kit!</span>
+                <span className="text-neutral-300">Saved to Kit!</span>
               </div>
             )}
           </div>
@@ -1065,7 +1287,7 @@ export default function ScanPage() {
       )}
 
       {/* ------------------------------------------------------------------ */}
-      {/* 6. FINISHED KIT SUMMARY VIEW                                       */}
+      {/* 7. FINISHED KIT SUMMARY VIEW                                       */}
       {/* ------------------------------------------------------------------ */}
       {mode === 'kit' && kitStep === 'finished' && currentKit && (
         <div className="p-6 bg-white border border-[#E5E5E5] rounded text-center space-y-4">
