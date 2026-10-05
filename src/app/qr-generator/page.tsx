@@ -27,7 +27,7 @@ interface StickerFormatConfig {
   type: EntityType;
   title: string;
   size: string;
-  stickersPerSheet: number;
+  stickersPerPage: number;
   description: string;
 }
 
@@ -35,23 +35,23 @@ const FORMAT_CONFIGS: Record<EntityType, StickerFormatConfig> = {
   serial: {
     type: 'serial',
     title: 'Serial Number',
-    size: '100 mm × 50 mm',
-    stickersPerSheet: 24,
-    description: '24 stickers / sheet (100×50mm)',
+    size: '50mm × 50mm',
+    stickersPerPage: 2,
+    description: '2 QRs per 50mm × 100mm thermal page',
   },
   batch: {
     type: 'batch',
     title: 'Batch Number',
-    size: '100 mm × 50 mm',
-    stickersPerSheet: 24,
-    description: '24 stickers / sheet (100×50mm)',
+    size: '50mm × 50mm',
+    stickersPerPage: 2,
+    description: '2 QRs per 50mm × 100mm thermal page',
   },
   kit: {
     type: 'kit',
     title: 'Kit Number',
-    size: '100 mm × 50 mm',
-    stickersPerSheet: 24,
-    description: '24 stickers / sheet (100×50mm)',
+    size: '50mm × 50mm',
+    stickersPerPage: 2,
+    description: '2 QRs per 50mm × 100mm thermal page',
   },
 };
 
@@ -61,17 +61,20 @@ export default function QRGeneratorPage() {
   // Selected Sticker Format (Serial, Batch, Kit)
   const [selectedFormat, setSelectedFormat] = useState<EntityType>('serial');
 
-  // Sheet Quantity
-  const [numSheets, setNumSheets] = useState<number>(1);
+  // Thermal Label Page Quantity (each page contains 2 QRs)
+  const [numPages, setNumPages] = useState<number>(5);
+
+  // Label Roll Orientation
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
 
   // Live Sequence Range from DB
   const [nextIndex, setNextIndex] = useState<number>(0);
   const [firstCode, setFirstCode] = useState<string>('A00001');
-  const [lastCode, setLastCode] = useState<string>('A00024');
+  const [lastCode, setLastCode] = useState<string>('A00010');
   const [historyCount, setHistoryCount] = useState<number>(0);
   const [loadingSequence, setLoadingSequence] = useState<boolean>(true);
 
-  // Sample Preview QR Codes (6 preview cards)
+  // Sample Preview QR Codes (6 preview codes = 3 thermal pages of 2 QRs)
   const [previewQRs, setPreviewQRs] = useState<Array<{ code: string; dataUrl: string }>>([]);
 
   // Generation & Print Status
@@ -84,7 +87,7 @@ export default function QRGeneratorPage() {
   const [historyLogs, setHistoryLogs] = useState<any[]>([]);
 
   const currentConfig = FORMAT_CONFIGS[selectedFormat];
-  const totalStickers = numSheets * currentConfig.stickersPerSheet;
+  const totalStickers = numPages * currentConfig.stickersPerPage;
 
   // 1. Fetch live upcoming sequence from database
   const fetchLiveSequence = useCallback(async () => {
@@ -100,7 +103,7 @@ export default function QRGeneratorPage() {
         setLastCode(data.lastCode);
         setHistoryCount(data.historyCount || 0);
 
-        // Generate 6 preview sample codes dynamically using client QRCode
+        // Generate preview sample codes dynamically using client QRCode
         generatePreviewSamples(data.nextIndex, selectedFormat);
       }
     } catch (err) {
@@ -110,7 +113,7 @@ export default function QRGeneratorPage() {
     }
   }, [selectedFormat, totalStickers]);
 
-  // Generate 6 sample QR codes for the preview grid
+  // Generate 6 sample QR codes for preview (3 thermal labels)
   const generatePreviewSamples = async (startIndex: number, type: EntityType) => {
     try {
       const QRCode = (await import('qrcode')).default;
@@ -121,7 +124,7 @@ export default function QRGeneratorPage() {
         const dataUrl = await QRCode.toDataURL(code, {
           errorCorrectionLevel: 'M',
           margin: 1,
-          width: 140,
+          width: 180,
           color: { dark: '#000000', light: '#FFFFFF' },
         });
         samples.push({ code, dataUrl });
@@ -171,11 +174,11 @@ export default function QRGeneratorPage() {
       }
 
       setSuccessBanner(
-        `Generated ${data.count} sequential ${selectedFormat.toUpperCase()} QR codes (${firstCode} → ${lastCode})!`
+        `Generated ${data.count} sequential ${selectedFormat.toUpperCase()} QR codes (${firstCode} → ${lastCode}) across ${numPages} thermal pages (50mm × 100mm)!`
       );
 
-      // Open print window for 12" x 18" digital paper sheet
-      openPrintSheetWindow(data.items, currentConfig, numSheets);
+      // Open print window for 50mm x 100mm thermal printer label pages
+      openPrintSheetWindow(data.items, currentConfig, numPages, orientation);
 
       // Refresh live sequence counter from DB
       fetchLiveSequence();
@@ -186,145 +189,195 @@ export default function QRGeneratorPage() {
     }
   };
 
-  // 3. Printable 12" x 18" Digital Paper Sheet Template
+  // 3. Printable 50mm x 100mm Thermal Printer Label Template (2 QRs per Label)
   const openPrintSheetWindow = (
     items: Array<{ code: string; dataUrl: string; productName?: string }>,
     config: StickerFormatConfig,
-    sheets: number
+    pagesCount: number,
+    printOrientation: 'portrait' | 'landscape' = 'portrait'
   ) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    // Build sticker items
-    const stickersHtml = items
-      .map(
-        (item) => `
-        <div class="sticker-cell">
-          <img src="${item.dataUrl}" class="qr-img" alt="${item.code}" />
-          <div class="sticker-details">
-            <div class="qr-code">${item.code}</div>
-            <div class="qr-sub">${config.title.toUpperCase()}</div>
-            ${item.productName ? `<div class="qr-product">${item.productName}</div>` : ''}
-            <div class="qr-dim">100 mm × 50 mm</div>
+    // Group items into pairs of 2 (bunch of two QRs per thermal page)
+    const pagePairs: Array<Array<{ code: string; dataUrl: string; productName?: string }>> = [];
+    for (let i = 0; i < items.length; i += 2) {
+      pagePairs.push(items.slice(i, i + 2));
+    }
+
+    const isPortrait = printOrientation === 'portrait';
+
+    const pagesHtml = pagePairs
+      .map((pair, pIdx) => {
+        const qr1 = pair[0];
+        const qr2 = pair[1];
+
+        return `
+          <div class="thermal-page">
+            <div class="qr-sticker">
+              <img src="${qr1.dataUrl}" class="qr-img" alt="${qr1.code}" />
+              <div class="qr-code">${qr1.code}</div>
+              <div class="qr-sub">${config.title.toUpperCase()}</div>
+              ${qr1.productName ? `<div class="qr-prod">${qr1.productName}</div>` : ''}
+            </div>
+            ${qr2 ? `
+            <div class="qr-divider"></div>
+            <div class="qr-sticker">
+              <img src="${qr2.dataUrl}" class="qr-img" alt="${qr2.code}" />
+              <div class="qr-code">${qr2.code}</div>
+              <div class="qr-sub">${config.title.toUpperCase()}</div>
+              ${qr2.productName ? `<div class="qr-prod">${qr2.productName}</div>` : ''}
+            </div>
+            ` : ''}
           </div>
-        </div>
-      `
-      )
+        `;
+      })
       .join('');
 
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Print QR Sheet - ${config.title} (${items.length} QRs · 100mm × 50mm)</title>
+          <meta charset="utf-8">
+          <title>Thermal Print - ${config.title} (${items.length} QRs · ${pagePairs.length} Labels · ${isPortrait ? '50mm × 100mm' : '100mm × 50mm'})</title>
           <style>
             @page {
-              size: 12in 18in;
-              margin: 8mm;
+              size: ${isPortrait ? '50mm 100mm' : '100mm 50mm'};
+              margin: 0;
             }
             * {
               box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            html, body {
               margin: 0;
               padding: 0;
               background: #fff;
               color: #000;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             }
-            .header-info {
+            .thermal-page {
+              width: ${isPortrait ? '50mm' : '100mm'};
+              height: ${isPortrait ? '100mm' : '50mm'};
+              max-width: ${isPortrait ? '50mm' : '100mm'};
+              max-height: ${isPortrait ? '100mm' : '50mm'};
+              page-break-after: always;
+              break-after: page;
               display: flex;
-              justify-content: space-between;
-              font-size: 11px;
-              font-weight: bold;
-              border-bottom: 2px solid #000;
-              padding: 6px 8px;
-              margin-bottom: 6mm;
-            }
-            .sheet-grid {
-              display: flex;
-              flex-wrap: wrap;
-              gap: 4mm;
-              justify-content: flex-start;
-            }
-            .sticker-cell {
-              width: 100mm;
-              height: 50mm;
-              border: 1px dashed #999;
-              border-radius: 4px;
-              padding: 4mm 6mm;
-              box-sizing: border-box;
-              display: flex;
-              flex-direction: row;
-              align-items: center;
-              justify-content: flex-start;
-              gap: 5mm;
-              page-break-inside: avoid;
+              flex-direction: ${isPortrait ? 'column' : 'row'};
               overflow: hidden;
               background: #fff;
+              position: relative;
             }
-            .qr-img {
-              width: 40mm;
-              height: 40mm;
-              object-fit: contain;
-              flex-shrink: 0;
-            }
-            .sticker-details {
+            .qr-sticker {
+              width: 50mm;
+              height: 50mm;
+              max-height: 50mm;
+              flex: 1;
               display: flex;
               flex-direction: column;
+              align-items: center;
               justify-content: center;
-              text-align: left;
-              flex-grow: 1;
-              min-width: 0;
+              padding: 2mm 1.5mm;
+              text-align: center;
+              position: relative;
+            }
+            .qr-divider {
+              ${isPortrait ? 'width: 100%; height: 0; border-top: 1px dashed #666;' : 'height: 100%; width: 0; border-left: 1px dashed #666;'}
+            }
+            .qr-img {
+              width: 32mm;
+              height: 32mm;
+              display: block;
+              margin: 0 auto;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: pixelated;
             }
             .qr-code {
-              font-size: 20px;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+              font-size: 11pt;
               font-weight: 900;
-              font-family: monospace;
               letter-spacing: 0.5px;
-              color: #000;
               line-height: 1.1;
-              word-break: break-all;
+              margin-top: 1.5mm;
+              color: #000;
             }
             .qr-sub {
-              font-size: 11px;
-              font-weight: bold;
-              color: #111;
+              font-size: 6.5pt;
+              font-weight: 700;
               text-transform: uppercase;
               letter-spacing: 0.5px;
-              margin-top: 4px;
+              color: #333;
+              margin-top: 0.5mm;
             }
-            .qr-product {
-              font-size: 10px;
-              color: #444;
-              margin-top: 2px;
-              white-space: nowrap;
+            .qr-prod {
+              font-size: 5.5pt;
+              color: #555;
+              max-width: 44mm;
               overflow: hidden;
+              white-space: nowrap;
               text-overflow: ellipsis;
-              max-width: 45mm;
+              margin-top: 0.5mm;
             }
-            .qr-dim {
-              font-size: 9px;
-              color: #666;
-              font-weight: 600;
-              margin-top: 3px;
+            @media screen {
+              body {
+                background: #e5e5e5;
+                padding: 24px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+              }
+              .toolbar {
+                background: #111111;
+                color: #ffffff;
+                padding: 10px 18px;
+                border-radius: 10px;
+                display: flex;
+                gap: 14px;
+                align-items: center;
+                font-size: 12px;
+                position: sticky;
+                top: 16px;
+                z-index: 100;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+              }
+              .toolbar button {
+                background: #ffffff;
+                color: #111111;
+                border: none;
+                padding: 6px 14px;
+                font-weight: bold;
+                border-radius: 6px;
+                cursor: pointer;
+                transition: opacity 0.15s;
+              }
+              .toolbar button:hover {
+                opacity: 0.9;
+              }
+              .thermal-page {
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                border: 1px solid #ccc;
+              }
             }
             @media print {
-              .no-print { display: none; }
-              body { padding: 0; }
+              .toolbar {
+                display: none !important;
+              }
             }
           </style>
         </head>
         <body>
-          <div class="header-info">
-            <span>FORMAT: ${config.title.toUpperCase()} (100 mm × 50 mm)</span>
-            <span>RANGE: ${items[0]?.code || ''} → ${items[items.length - 1]?.code || ''}</span>
-            <span>TOTAL: ${items.length} STICKERS (${sheets} SHEET${sheets > 1 ? 'S' : ''})</span>
-            <span>12" × 18" DIGITAL PAPER</span>
+          <div class="toolbar no-print">
+            <span style="font-weight: bold;">
+              Thermal Print: ${isPortrait ? '50mm × 100mm' : '100mm × 50mm'} (2 QRs/Label) · ${items.length} Stickers (${pagePairs.length} Labels)
+            </span>
+            <button onclick="window.print()">🖨️ Print Now</button>
           </div>
-          <div class="sheet-grid">
-            ${stickersHtml}
-          </div>
+          ${pagesHtml}
           <script>
             window.onload = function() {
               window.print();
@@ -336,6 +389,14 @@ export default function QRGeneratorPage() {
     printWindow.document.close();
   };
 
+  // Group preview items into pairs of 2 for simulated thermal label cards
+  const previewPairs: Array<Array<{ code: string; dataUrl: string }>> = [];
+  for (let i = 0; i < previewQRs.length; i += 2) {
+    if (previewQRs[i]) {
+      previewPairs.push([previewQRs[i], previewQRs[i + 1] || previewQRs[i]]);
+    }
+  }
+
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
       {/* =================================================================== */}
@@ -344,14 +405,14 @@ export default function QRGeneratorPage() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2">
         <div>
           <h1 className="text-2xl font-black text-[#111111] tracking-tight">
-            QR Code Generator
+            Thermal QR Code Generator
           </h1>
           <p className="text-xs text-[#666666] mt-0.5">
-            Print sheets and scan inventory
+            50mm × 100mm thermal printer pages (bunch of 2 QRs per label)
           </p>
         </div>
 
-        {/* Top-Right Navigation Buttons (Matching Image) */}
+        {/* Top-Right Navigation Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Active Generate & Print Button */}
           <button
@@ -413,13 +474,13 @@ export default function QRGeneratorPage() {
       )}
 
       {/* =================================================================== */}
-      {/* 2. TWO-COLUMN MAIN BODY LAYOUT (Matching Reference Image)           */}
+      {/* 2. TWO-COLUMN MAIN BODY LAYOUT                                      */}
       {/* =================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* ----------------------------------------------------------------- */}
-        {/* LEFT COLUMN: 1. Print Sheets Configuration Card (lg:col-span-5)   */}
+        {/* LEFT COLUMN: Thermal Configuration Card (lg:col-span-5)           */}
         {/* ----------------------------------------------------------------- */}
-        <div className="lg:col-span-5 bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-6">
+        <div className="lg:col-span-5 bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-5">
           {/* Card Header with Step 1 Circle and Refresh */}
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3">
@@ -427,9 +488,9 @@ export default function QRGeneratorPage() {
                 1
               </div>
               <div>
-                <h2 className="text-sm font-black text-[#111111]">Print Sheets</h2>
+                <h2 className="text-sm font-black text-[#111111]">Thermal Label Setup</h2>
                 <p className="text-xs text-[#666666] mt-0.5">
-                  Select sticker format and quantity
+                  50mm × 100mm page • 2 QRs per label
                 </p>
               </div>
             </div>
@@ -445,16 +506,11 @@ export default function QRGeneratorPage() {
 
           {/* Section: Sticker Format */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-[#111111]">
-                Sticker Format
-              </label>
-              <span className="text-[11px] font-mono font-bold text-black bg-neutral-100 px-2 py-0.5 rounded border border-[#E5E5E5]">
-                100 mm × 50 mm
-              </span>
-            </div>
+            <label className="block text-xs font-bold text-[#111111]">
+              Sticker Identifier Type
+            </label>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {/* Option 1: Serial Number */}
               <button
                 type="button"
@@ -465,24 +521,16 @@ export default function QRGeneratorPage() {
                     : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="font-black text-xs">Serial Number</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
-                      selectedFormat === 'serial'
-                        ? 'bg-white text-black'
-                        : 'bg-neutral-100 text-[#555555]'
-                    }`}
-                  >
-                    100 × 50 mm
-                  </span>
-                </div>
-                <span
-                  className={`text-[10px] mt-2 ${
-                    selectedFormat === 'serial' ? 'text-neutral-300' : 'text-[#666666]'
-                  }`}
-                >
-                  24 stickers / sheet
+                <span className="font-black text-xs">Serial Number</span>
+                <span className={`text-[10px] mt-1 font-mono font-bold ${
+                  selectedFormat === 'serial' ? 'text-neutral-300' : 'text-[#666666]'
+                }`}>
+                  50mm × 50mm
+                </span>
+                <span className={`text-[10px] mt-0.5 ${
+                  selectedFormat === 'serial' ? 'text-neutral-400' : 'text-[#888888]'
+                }`}>
+                  2 QRs / label
                 </span>
               </button>
 
@@ -496,24 +544,16 @@ export default function QRGeneratorPage() {
                     : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="font-black text-xs">Batch Number</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
-                      selectedFormat === 'batch'
-                        ? 'bg-white text-black'
-                        : 'bg-neutral-100 text-[#555555]'
-                    }`}
-                  >
-                    100 × 50 mm
-                  </span>
-                </div>
-                <span
-                  className={`text-[10px] mt-2 ${
-                    selectedFormat === 'batch' ? 'text-neutral-300' : 'text-[#666666]'
-                  }`}
-                >
-                  24 stickers / sheet
+                <span className="font-black text-xs">Batch Number</span>
+                <span className={`text-[10px] mt-1 font-mono font-bold ${
+                  selectedFormat === 'batch' ? 'text-neutral-300' : 'text-[#666666]'
+                }`}>
+                  50mm × 50mm
+                </span>
+                <span className={`text-[10px] mt-0.5 ${
+                  selectedFormat === 'batch' ? 'text-neutral-400' : 'text-[#888888]'
+                }`}>
+                  2 QRs / label
                 </span>
               </button>
 
@@ -527,38 +567,67 @@ export default function QRGeneratorPage() {
                     : 'bg-white text-[#111111] border-[#E5E5E5] hover:border-black'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="font-black text-xs">Kit Number</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold ${
-                      selectedFormat === 'kit'
-                        ? 'bg-white text-black'
-                        : 'bg-neutral-100 text-[#555555]'
-                    }`}
-                  >
-                    100 × 50 mm
-                  </span>
-                </div>
-                <span
-                  className={`text-[10px] mt-2 ${
-                    selectedFormat === 'kit' ? 'text-neutral-300' : 'text-[#666666]'
-                  }`}
-                >
-                  24 stickers / sheet
+                <span className="font-black text-xs">Kit Number</span>
+                <span className={`text-[10px] mt-1 font-mono font-bold ${
+                  selectedFormat === 'kit' ? 'text-neutral-300' : 'text-[#666666]'
+                }`}>
+                  50mm × 50mm
+                </span>
+                <span className={`text-[10px] mt-0.5 ${
+                  selectedFormat === 'kit' ? 'text-neutral-400' : 'text-[#888888]'
+                }`}>
+                  2 QRs / label
                 </span>
               </button>
             </div>
           </div>
 
-          {/* Section: Number of Sheets (12" × 18") */}
+          {/* Section: Thermal Roll Feed Orientation */}
+          <div className="space-y-1.5 pt-1">
+            <label className="block text-xs font-bold text-[#111111]">
+              Thermal Roll Feed Orientation
+            </label>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setOrientation('portrait')}
+                className={`p-2.5 rounded-lg border text-left transition ${
+                  orientation === 'portrait'
+                    ? 'bg-black text-white border-black font-bold'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
+                }`}
+              >
+                <div className="font-bold">Portrait (50mm × 100mm)</div>
+                <div className={`text-[10px] mt-0.5 ${orientation === 'portrait' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                  Standard: 2 QRs stacked vertically
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrientation('landscape')}
+                className={`p-2.5 rounded-lg border text-left transition ${
+                  orientation === 'landscape'
+                    ? 'bg-black text-white border-black font-bold'
+                    : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
+                }`}
+              >
+                <div className="font-bold">Landscape (100mm × 50mm)</div>
+                <div className={`text-[10px] mt-0.5 ${orientation === 'landscape' ? 'text-neutral-300' : 'text-[#666666]'}`}>
+                  2-Across: 2 QRs side-by-side
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Section: Number of Thermal Labels (50mm × 100mm) */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[#111111] flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5" />
-                Number of Sheets (12&quot; × 18&quot;)
+                Number of Thermal Labels (50mm × 100mm)
               </span>
               <span className="text-[11px] font-bold text-[#111111] bg-neutral-100 px-2.5 py-0.5 rounded-full border border-[#E5E5E5]">
-                Total: {totalStickers} Stickers
+                Total: {totalStickers} QR Stickers ({numPages} Labels)
               </span>
             </div>
 
@@ -566,7 +635,7 @@ export default function QRGeneratorPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setNumSheets((s) => Math.max(1, s - 1))}
+                onClick={() => setNumPages((s) => Math.max(1, s - 1))}
                 className="w-10 h-10 rounded-lg border border-[#E5E5E5] flex items-center justify-center hover:bg-neutral-50 text-[#111111] transition font-bold"
               >
                 <Minus className="w-4 h-4" />
@@ -575,35 +644,35 @@ export default function QRGeneratorPage() {
               <input
                 type="number"
                 min="1"
-                max="50"
-                value={numSheets}
-                onChange={(e) => setNumSheets(Math.max(1, parseInt(e.target.value) || 1))}
+                max="250"
+                value={numPages}
+                onChange={(e) => setNumPages(Math.max(1, parseInt(e.target.value) || 1))}
                 className="flex-1 h-10 text-center font-bold text-sm border border-[#E5E5E5] rounded-lg focus:outline-none focus:border-black font-mono"
               />
 
               <button
                 type="button"
-                onClick={() => setNumSheets((s) => Math.min(50, s + 1))}
+                onClick={() => setNumPages((s) => Math.min(250, s + 1))}
                 className="w-10 h-10 rounded-lg border border-[#E5E5E5] flex items-center justify-center hover:bg-neutral-50 text-[#111111] transition font-bold"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Preset Sheets Buttons */}
+            {/* Preset Pages Buttons */}
             <div className="grid grid-cols-4 gap-1.5">
-              {[1, 2, 5, 10].map((preset) => (
+              {[1, 5, 10, 25].map((preset) => (
                 <button
                   key={preset}
                   type="button"
-                  onClick={() => setNumSheets(preset)}
+                  onClick={() => setNumPages(preset)}
                   className={`py-2 text-xs font-semibold rounded-lg border transition ${
-                    numSheets === preset
+                    numPages === preset
                       ? 'bg-black text-white border-black font-bold'
                       : 'bg-white text-[#111111] border-[#E5E5E5] hover:bg-neutral-50'
                   }`}
                 >
-                  {preset} {preset === 1 ? 'Sheet' : 'Sheets'}
+                  {preset} {preset === 1 ? 'Label (2 QRs)' : `Labels (${preset * 2} QRs)`}
                 </button>
               ))}
             </div>
@@ -617,7 +686,7 @@ export default function QRGeneratorPage() {
             </span>
           </div>
 
-          {/* Action Button: Generate & Download PDF */}
+          {/* Action Button: Generate & Print */}
           <button
             type="button"
             disabled={isGenerating || loadingSequence}
@@ -632,13 +701,13 @@ export default function QRGeneratorPage() {
             <span>
               {isGenerating
                 ? 'Allocating in Database...'
-                : `Generate & Download PDF (${numSheets} Sheet${numSheets > 1 ? 's' : ''} · ${totalStickers} QRs)`}
+                : `Generate & Print Thermal Labels (${numPages} Label${numPages > 1 ? 's' : ''} · ${totalStickers} QRs)`}
             </span>
           </button>
         </div>
 
         {/* ----------------------------------------------------------------- */}
-        {/* RIGHT COLUMN: Sequence Range & Sticker Preview (lg:col-span-7)    */}
+        {/* RIGHT COLUMN: Sequence Range & Thermal Label Preview (lg:col-span-7) */}
         {/* ----------------------------------------------------------------- */}
         <div className="lg:col-span-7 space-y-5">
           {/* Card 1: Sequence Range Card */}
@@ -669,68 +738,96 @@ export default function QRGeneratorPage() {
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-[#E5E5E5] text-xs">
-                <span className="text-[#666666]">Sheet Format:</span>
+                <span className="text-[#666666]">Thermal Page Size:</span>
                 <span className="font-semibold text-[#111111]">
-                  12&quot; × 18&quot; Digital Paper ({numSheets} Sheet{numSheets > 1 ? 's' : ''})
+                  50mm × 100mm ({numPages} Label{numPages > 1 ? 's' : ''} · {totalStickers} QR Stickers)
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Card 2: Sticker Preview Card */}
+          {/* Card 2: Thermal Label Preview Card */}
           <div className="bg-white border border-[#E5E5E5] rounded-2xl p-6 space-y-4">
-            <div>
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-black text-[#111111]">Sticker Preview</h2>
-                <span className="text-[10px] font-mono font-bold text-black bg-neutral-100 px-2 py-0.5 rounded border border-[#E5E5E5]">
-                  100 mm × 50 mm
-                </span>
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-sm font-black text-[#111111]">Thermal Label Preview</h2>
+                <p className="text-xs text-[#666666] mt-0.5">
+                  50mm × 100mm roll (bunch of 2 QRs per label with center perforation)
+                </p>
               </div>
-              <p className="text-xs text-[#666666] mt-0.5">
-                Exact physical scale: 100 mm width × 50 mm height (12&quot; × 18&quot; digital paper)
-              </p>
+              <span className="text-[10px] font-mono font-bold bg-neutral-100 text-[#444] px-2 py-0.5 rounded border border-[#E5E5E5]">
+                2 QRs / 50×100mm Page
+              </span>
             </div>
 
-            {/* 6 Preview Cards Grid - 100mm x 50mm Landscape Layout */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {previewQRs.map((item) => (
+            {/* Simulated 50mm x 100mm Thermal Labels (each card holds 2 QRs) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {previewPairs.map((pair, pIdx) => (
                 <div
-                  key={item.code}
-                  className="bg-white border border-[#E5E5E5] rounded-xl p-3 flex flex-row items-center gap-3.5 transition hover:border-black"
+                  key={pIdx}
+                  className="bg-white border-2 border-dashed border-[#CCCCCC] rounded-xl p-2.5 flex flex-col items-center justify-between text-center shadow-sm relative hover:border-black transition"
                 >
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 shrink-0 flex items-center justify-center bg-white p-1 border border-[#EEEEEE] rounded">
-                    {item.dataUrl ? (
-                      <img
-                        src={item.dataUrl}
-                        alt={item.code}
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-[10px] text-neutral-400">
-                        QR
-                      </div>
-                    )}
+                  <div className="w-full text-center text-[9px] font-mono text-[#888888] pb-1 border-b border-[#F0F0F0]">
+                    Label #{pIdx + 1} (50mm × 100mm)
                   </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="font-mono font-black text-base text-[#111111] truncate">
-                      {item.code}
+
+                  {/* QR 1 (Top Half - 50mm x 50mm) */}
+                  <div className="w-full py-2 flex flex-col items-center justify-center">
+                    <div className="w-20 h-20 flex items-center justify-center mb-1">
+                      {pair[0]?.dataUrl ? (
+                        <img
+                          src={pair[0].dataUrl}
+                          alt={pair[0].code}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-[10px] text-neutral-400">
+                          QR 1
+                        </div>
+                      )}
                     </div>
-                    <div className="text-[11px] font-bold text-[#333333] uppercase mt-0.5">
-                      {selectedFormat === 'serial'
-                        ? 'Serial Number'
-                        : selectedFormat === 'batch'
-                        ? 'Batch Number'
-                        : 'Kit Number'}
+                    <div className="font-mono font-black text-xs text-[#111111]">
+                      {pair[0]?.code}
                     </div>
-                    <div className="inline-block mt-1 px-2 py-0.5 bg-neutral-100 border border-[#E5E5E5] rounded text-[10px] font-mono font-bold text-[#555555]">
-                      100 mm × 50 mm
+                    <div className="text-[9px] text-[#777777] font-semibold uppercase">
+                      50×50mm {selectedFormat}
+                    </div>
+                  </div>
+
+                  {/* Perforation Guideline / Tear Line */}
+                  <div className="w-full border-t-2 border-dashed border-neutral-300 my-1 relative flex items-center justify-center">
+                    <span className="bg-white px-2 text-[8px] text-[#999999] uppercase font-bold tracking-wider -mt-2">
+                      ✂ 50mm Cut Line
+                    </span>
+                  </div>
+
+                  {/* QR 2 (Bottom Half - 50mm x 50mm) */}
+                  <div className="w-full py-2 flex flex-col items-center justify-center">
+                    <div className="w-20 h-20 flex items-center justify-center mb-1">
+                      {pair[1]?.dataUrl ? (
+                        <img
+                          src={pair[1].dataUrl}
+                          alt={pair[1].code}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-[10px] text-neutral-400">
+                          QR 2
+                        </div>
+                      )}
+                    </div>
+                    <div className="font-mono font-black text-xs text-[#111111]">
+                      {pair[1]?.code}
+                    </div>
+                    <div className="text-[9px] text-[#777777] font-semibold uppercase">
+                      50×50mm {selectedFormat}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Bottom Callout Banner: "Ready to scan?" */}
+            {/* Bottom Callout Banner */}
             <div className="pt-2">
               <div className="bg-neutral-50 border border-[#E5E5E5] rounded-xl p-4 flex items-center justify-between">
                 <div>

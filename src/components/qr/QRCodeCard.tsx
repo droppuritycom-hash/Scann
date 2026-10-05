@@ -47,100 +47,68 @@ export default function QRCodeCard({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Print Label - ${code} (100mm × 50mm)</title>
+          <title>Print Label - ${code} (50mm × 50mm)</title>
           <style>
             @page {
-              size: 100mm 50mm;
+              size: 50mm 50mm;
               margin: 0;
             }
             * {
               box-sizing: border-box;
-            }
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
               margin: 0;
               padding: 0;
-              width: 100mm;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              width: 50mm;
               height: 50mm;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: #fff;
-              color: #000;
-            }
-            .label-box {
-              width: 100mm;
-              height: 50mm;
-              border: 1px dashed #999;
-              padding: 4mm 6mm;
-              display: flex;
-              flex-direction: row;
-              align-items: center;
-              justify-content: flex-start;
-              gap: 5mm;
-              box-sizing: border-box;
-              overflow: hidden;
-            }
-            .qr-img {
-              width: 40mm;
-              height: 40mm;
-              object-fit: contain;
-              flex-shrink: 0;
-            }
-            .label-details {
+              max-width: 50mm;
+              max-height: 50mm;
               display: flex;
               flex-direction: column;
+              align-items: center;
               justify-content: center;
-              text-align: left;
-              flex-grow: 1;
-              min-width: 0;
+              padding: 2mm 1.5mm;
+              background: #fff;
+              color: #000;
+              text-align: center;
+            }
+            .qr-img {
+              width: 32mm;
+              height: 32mm;
+              display: block;
+              margin: 0 auto;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: pixelated;
             }
             .qr-code-text {
-              font-size: 20px;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+              font-size: 11pt;
               font-weight: 900;
-              font-family: monospace;
               letter-spacing: 0.5px;
-              color: #000;
               line-height: 1.1;
-              word-break: break-all;
+              margin-top: 1.5mm;
+              color: #000;
             }
             .qr-subtext {
-              font-size: 11px;
-              font-weight: bold;
-              margin-top: 3px;
-              color: #111;
+              font-size: 6.5pt;
+              font-weight: 700;
               text-transform: uppercase;
-            }
-            .qr-product {
-              font-size: 10px;
-              color: #444;
-              margin-top: 2px;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-            }
-            .qr-dim {
-              font-size: 9px;
-              color: #666;
-              font-weight: 600;
-              margin-top: 3px;
+              letter-spacing: 0.5px;
+              color: #333;
+              margin-top: 0.5mm;
             }
           </style>
         </head>
         <body>
-          <div class="label-box">
-            <img src="${dataUrl}" class="qr-img" alt="${code}" />
-            <div class="label-details">
-              <div class="qr-code-text">${code}</div>
-              <div class="qr-subtext">${type.toUpperCase()} IDENTIFIER</div>
-              ${productName ? `<div class="qr-product">${productName}</div>` : ''}
-              <div class="qr-dim">100 mm × 50 mm</div>
-            </div>
-          </div>
+          <img src="${dataUrl}" class="qr-img" alt="${code}" />
+          <div class="qr-code-text">${code}</div>
+          <div class="qr-subtext">${productName || `${type.toUpperCase()} IDENTIFIER`}</div>
           <script>
             window.onload = function() {
               window.print();
-              setTimeout(function() { window.close(); }, 500);
             };
           </script>
         </body>
@@ -183,9 +151,6 @@ export default function QRCodeCard({
             {partCode}
           </div>
         )}
-        <div className="inline-block mt-1.5 px-2 py-0.5 bg-neutral-100 border border-[#E5E5E5] rounded text-[10px] font-mono font-bold text-[#666666]">
-          100 mm × 50 mm
-        </div>
       </div>
 
       {/* Action Buttons */}
